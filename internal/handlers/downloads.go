@@ -35,6 +35,8 @@ func (d *Downloads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         case http.MethodPatch:
             d.patchDownload(w, r, id)
             return
+			  case http.MethodGet:
+						d.getDownload(w, id)
         default:
             w.WriteHeader(http.StatusMethodNotAllowed)
             return
@@ -44,7 +46,7 @@ func (d *Downloads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     if r.URL.Path == "/downloads" {
         switch r.Method {
         case http.MethodGet:
-            d.getDownloads(w, r)
+            d.getDownloads(w)
             return
         case http.MethodPost:
             d.addDownload(w, r)
@@ -54,16 +56,25 @@ func (d *Downloads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
             return
         }
     }
-    http.NotFound(w, r)
 }
 
-func (d *Downloads) getDownloads(w http.ResponseWriter, r *http.Request) {
-	d.l.Println("Handle GET Download")
+func (d *Downloads) getDownloads(w http.ResponseWriter) {
+	d.l.Println("Handle GET Downloads")
 	dl := data.GetDownloads()
 	err := dl.ToJSON(w)
 	if err != nil {
 		http.Error(w, "Unable to marshal json", http.StatusInternalServerError)
 	}
+}
+
+func (d *Downloads) getDownload(w http.ResponseWriter, id int) {
+	d.l.Println("Handle GET Download")
+	dl, err := data.FindByID(id)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = dl.ToJSON(w)
 }
 
 func (d *Downloads) addDownload(w http.ResponseWriter, r *http.Request) {
