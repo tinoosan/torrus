@@ -73,6 +73,7 @@ func (d *Downloads) getDownload(w http.ResponseWriter, id int) {
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 	}
+	w.Header().Set("Content-Type", "application/json")
 	_ = dl.ToJSON(w)
 }
 
