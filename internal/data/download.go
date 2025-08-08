@@ -2,7 +2,9 @@ package data
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"strconv"
 	"time"
 )
 
@@ -12,12 +14,9 @@ type Download struct {
 	Source        string         `json:"source"`
 	TargetPath    string         `json:"targetPath"`
 	Status        DownloadStatus `json:"status"`
-	DesiredStatus string         `json:"desiredStatus,omitempty"`
+	DesiredStatus DownloadStatus `json:"desiredStatus,omitempty"`
 	CreatedAt     time.Time      `json:"createdAt"`
 }
-
-type Downloads []*Download
-type DownloadStatus string
 
 const (
 	StatusQueued    DownloadStatus = "Queued"
@@ -28,15 +27,24 @@ const (
 	StatusError     DownloadStatus = "Failed"
 )
 
-func (d *Downloads) ToJSON(w io.Writer) error {
-	e := json.NewEncoder(w)
-	return e.Encode(d)
-}
+type Downloads []*Download
+type DownloadStatus string
 
-func (d *Download) FromJSON(r io.Reader) error {
-	e := json.NewDecoder(r)
-	return e.Decode(d)
-}
+var (
+	ErrNotFound     = errors.New("download not found")
+	ErrBadStatus    = errors.New("invalid status")
+	allowedStatuses = map[DownloadStatus]bool{
+		StatusActive:    true,
+		StatusPaused:    true,
+		StatusCancelled: true,
+	}
+)
+
+func (d *Downloads) ToJSON(w io.Writer) error { return json.NewEncoder(w).Encode(d) }
+
+func (d *Download) ToJSON(w io.Writer) error { return json.NewEncoder(w).Encode(d) }
+
+func (d *Download) FromJSON(r io.Reader) error { return json.NewDecoder(r).Decode(d) }
 
 func GetDownloads() Downloads {
 	return downloadList
@@ -44,8 +52,36 @@ func GetDownloads() Downloads {
 
 func AddDownload(d *Download) {
 	d.ID = getNextID()
-	d.Status = StatusQueued
+	d.DesiredStatus = StatusActive
+	d.Status = StatusActive
+	downloadList = append(downloadList, d)
 }
+
+func FindByID(id int) (*Download, error) {
+	for _, dl := range downloadList {
+		if dl.ID == id {
+			return dl, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func UpdateDesiredStatus(id int, newStatus DownloadStatus) (*Download, error) {
+	if !allowedStatuses[newStatus] {
+		return nil, ErrBadStatus
+	}
+	dl, err := FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	dl.DesiredStatus = newStatus
+	dl.Status = newStatus
+
+	return dl, nil
+}
+
+func ParseID(s string) (int, error) { return strconv.Atoi(s) }
 
 func getNextID() int {
 	dl := downloadList[len(downloadList)-1]

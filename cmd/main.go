@@ -18,6 +18,7 @@ func main() {
 
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/downloads", downloadHandler)
+	serveMux.Handle("/downloads/", downloadHandler)
 
 	server := &http.Server{
 		Addr:         ":9090",
