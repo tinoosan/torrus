@@ -14,7 +14,7 @@ import (
 func main() {
 
 	l := log.New(os.Stdout, "torrus-api ", log.LstdFlags)
-	downloadHandler := handlers.NewDownload(l)
+	downloadHandler := handlers.NewDownloads(l)
 
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/downloads", downloadHandler)

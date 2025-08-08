@@ -1,28 +1,32 @@
 package handlers
 
 import (
-	"fmt"
-	"io"
 	"log"
 	"net/http"
+
+	"github.com/tinoosan/torrus/internal/data"
 )
 
-type Download struct {
+type Downloads struct {
 	l *log.Logger
 }
 
-func NewDownload(l *log.Logger) *Download {
-	return &Download{l}
+func NewDownloads(l *log.Logger) *Downloads {
+	return &Downloads{l}
 }
 
-func (d *Download) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	d.l.Println("Downloading files...")
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "oops", http.StatusBadRequest)
+func (d *Downloads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	 if r.Method == http.MethodGet{
+		d.getDownloads(w, r)
 		return
 	}
-	d.l.Printf("Data %s\n", data)
+	w.WriteHeader(http.StatusMethodNotAllowed)
+}
 
-	fmt.Fprintf(w, "%s", data)
+func (d *Downloads) getDownloads(w http.ResponseWriter, r *http.Request) {
+	dl := data.GetDownloads()
+	err := dl.ToJSON(w)
+	if err != nil {
+		http.Error(w, "Unable to marshal json", http.StatusInternalServerError)
+	}
 }
