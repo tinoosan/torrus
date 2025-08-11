@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -52,10 +53,11 @@ func (d *Downloads) GetDownload(w http.ResponseWriter, r *http.Request) {
 func (d *Downloads) AddDownload(w http.ResponseWriter, r *http.Request) {
 	d.l.Println("Handle POST Download")
 
-	dl := &data.Download{}
-	err := dl.FromJSON(r.Body)
-	if err != nil {
-		http.Error(w, "Unable to unmarshal json", http.StatusBadRequest)
+	v := r.Context().Value(KeyDownload{})
+	dl, ok := v.(*data.Download)
+	if !ok || dl == nil {
+		http.Error(w, "download missing in context", http.StatusInternalServerError)
+		return
 	}
 	data.AddDownload(dl)
 	d.l.Printf("Download: %#v", dl)
@@ -72,7 +74,9 @@ func (d *Downloads) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
+		return
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DesiredStatus == "" {
 		http.Error(w, "missing desiredStatus", http.StatusBadRequest)
 		return
@@ -93,4 +97,22 @@ func (d *Downloads) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	_ = updated.ToJSON(w)
+}
+
+type KeyDownload struct{}
+
+func (d *Downloads) MiddlewareDownloadValidation(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dl := &data.Download{}
+
+		err := dl.FromJSON(r.Body)
+		if err != nil {
+			http.Error(w, "Error reading product", http.StatusBadRequest)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), KeyDownload{}, dl)
+		req := r.WithContext(ctx)
+		next.ServeHTTP(w, req)
+	})
 }

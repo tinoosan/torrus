@@ -28,6 +28,7 @@ func main() {
 
 	postRouter := r.Methods("POST").Subrouter()
 	postRouter.HandleFunc("/downloads", downloadHandler.AddDownload)
+	postRouter.Use(downloadHandler.MiddlewareDownloadValidation)
 
 	patchRouter := r.Methods("PATCH").Subrouter()
 	patchRouter.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
