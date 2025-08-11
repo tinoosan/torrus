@@ -8,21 +8,33 @@ import (
 	"os/signal"
 	"time"
 
+  "github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/handlers"
 )
 
 func main() {
 
 	l := log.New(os.Stdout, "torrus-api ", log.LstdFlags)
+
+	// create the handlers
 	downloadHandler := handlers.NewDownloads(l)
 
-	serveMux := http.NewServeMux()
-	serveMux.Handle("/downloads", downloadHandler)
-	serveMux.Handle("/downloads/", downloadHandler)
+	// create a new serve mux and register the handlers
+	r := mux.NewRouter()
+
+	getRouter := r.Methods("GET").Subrouter()
+	getRouter.HandleFunc("/downloads", downloadHandler.GetDownloads)
+	getRouter.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.GetDownload)
+
+	postRouter := r.Methods("POST").Subrouter()
+	postRouter.HandleFunc("/downloads", downloadHandler.AddDownload)
+
+	patchRouter := r.Methods("PATCH").Subrouter()
+	patchRouter.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
 
 	server := &http.Server{
 		Addr:         ":9090",
-		Handler:      serveMux,
+		Handler:      r,
 		IdleTimeout:  120 * time.Second,
 		ReadTimeout:  1 * time.Second,
 		WriteTimeout: 1 * time.Second,

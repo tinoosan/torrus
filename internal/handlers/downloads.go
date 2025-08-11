@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 
+	"github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/data"
 )
 
@@ -22,53 +22,25 @@ func NewDownloads(l *log.Logger) *Downloads {
 	return &Downloads{l}
 }
 
-func (d *Downloads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    // /downloads/{id}
-    if strings.HasPrefix(r.URL.Path, "/downloads/") {
-        idStr := strings.TrimPrefix(r.URL.Path, "/downloads/")
-        id, err := strconv.Atoi(idStr)
-        if err != nil || id <= 0 {
-            http.Error(w, "invalid id", http.StatusBadRequest)
-            return
-        }
-        switch r.Method {
-        case http.MethodPatch:
-            d.patchDownload(w, r, id)
-            return
-			  case http.MethodGet:
-						d.getDownload(w, id)
-        default:
-            w.WriteHeader(http.StatusMethodNotAllowed)
-            return
-        }
-    }
-    // /downloads
-    if r.URL.Path == "/downloads" {
-        switch r.Method {
-        case http.MethodGet:
-            d.getDownloads(w)
-            return
-        case http.MethodPost:
-            d.addDownload(w, r)
-            return
-        default:
-            w.WriteHeader(http.StatusMethodNotAllowed)
-            return
-        }
-    }
-}
-
-func (d *Downloads) getDownloads(w http.ResponseWriter) {
+func (d *Downloads) GetDownloads(w http.ResponseWriter, r *http.Request) {
 	d.l.Println("Handle GET Downloads")
 	dl := data.GetDownloads()
 	err := dl.ToJSON(w)
 	if err != nil {
 		http.Error(w, "Unable to marshal json", http.StatusInternalServerError)
 	}
+	w.Header().Set("Content-Type", "application/json")
 }
 
-func (d *Downloads) getDownload(w http.ResponseWriter, id int) {
+func (d *Downloads) GetDownload(w http.ResponseWriter, r *http.Request) {
 	d.l.Println("Handle GET Download")
+
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
+	}
+
 	dl, err := data.FindByID(id)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -77,7 +49,7 @@ func (d *Downloads) getDownload(w http.ResponseWriter, id int) {
 	_ = dl.ToJSON(w)
 }
 
-func (d *Downloads) addDownload(w http.ResponseWriter, r *http.Request) {
+func (d *Downloads) AddDownload(w http.ResponseWriter, r *http.Request) {
 	d.l.Println("Handle POST Download")
 
 	dl := &data.Download{}
@@ -87,15 +59,20 @@ func (d *Downloads) addDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	data.AddDownload(dl)
 	d.l.Printf("Download: %#v", dl)
- 
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = dl.ToJSON(w)
 }
 
-func (d *Downloads) patchDownload(w http.ResponseWriter, r *http.Request, id int) {
+func (d *Downloads) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 	d.l.Println("Handle PATCH Download")
 	var body patchBody
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
+	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DesiredStatus == "" {
 		http.Error(w, "missing desiredStatus", http.StatusBadRequest)
 		return
