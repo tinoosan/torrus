@@ -32,6 +32,7 @@ func main() {
 
 	patchRouter := r.Methods("PATCH").Subrouter()
 	patchRouter.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
+	patchRouter.Use(downloadHandler.MiddlewarePatchDesired)
 
 	server := &http.Server{
 		Addr:         ":9090",
