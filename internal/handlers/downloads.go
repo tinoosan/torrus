@@ -128,7 +128,7 @@ func (d *Downloads) MiddlewareDownloadValidation(next http.Handler) http.Handler
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(dl); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -150,8 +150,22 @@ func (d *Downloads) MiddlewareDownloadValidation(next http.Handler) http.Handler
 
 func (d *Downloads) MiddlewarePatchDesired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if contentType := r.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(contentType,"application/json"){
+			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 		var body patchBody
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DesiredStatus == "" {
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if body.DesiredStatus == "" {
 			http.Error(w, "missing desiredStatus", http.StatusBadRequest)
 			return
 		}
