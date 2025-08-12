@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -19,7 +20,6 @@ type Downloads struct {
 type patchBody struct {
 	DesiredStatus string `json:"desiredStatus"`
 }
-
 
 // context keys
 type ctxKeyDownload struct{}
@@ -112,21 +112,39 @@ func (d *Downloads) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 	_ = updated.ToJSON(w)
 }
 
-
-
 func (d *Downloads) MiddlewareDownloadValidation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dl := &data.Download{}
+		if contentType := r.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(contentType, "application/json") {
+			// Content type
+			http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
 
-		err := dl.FromJSON(r.Body)
-		if err != nil {
-			http.Error(w, "Error reading product", http.StatusBadRequest)
+		// Body limit
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+    // Decode with strict fields
+		dl := &data.Download{}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(dl); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Field validation 
+		if !isMagnet(dl.Source) {
+			http.Error(w, "invalid magnet URI", http.StatusBadRequest)
+			return
+		}
+
+		if strings.TrimSpace(dl.TargetPath) == "" {
+			http.Error(w, "targetPath is required", http.StatusBadRequest)
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), ctxKeyDownload{}, dl)
-		req := r.WithContext(ctx)
-		next.ServeHTTP(w, req)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -140,6 +158,11 @@ func (d *Downloads) MiddlewarePatchDesired(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), ctxKeyPatch{}, body)
 		next.ServeHTTP(w, r.WithContext(ctx))
-		
+
 	})
+}
+
+func isMagnet(s string) bool {
+	if !strings.HasPrefix(s, "magnet:?") { return false }
+	return strings.Contains(s, "xt=urn:btih:")
 }
