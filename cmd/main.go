@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -15,8 +16,14 @@ import (
 
 func main() {
 
-	//l := log.New(os.Stdout, "torrus-api ", log.LstdFlags)
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	var logger *slog.Logger
+
+	switch strings.ToLower(os.Getenv("LOG_FORMAT")) {
+	case "json":
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	default:
+		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	}
 
 	// create the handlers
 	downloadHandler := handlers.NewDownloads(logger)
@@ -49,19 +56,20 @@ func main() {
 	go func() {
 		logger.Info("Starting Torrus API on", "port", server.Addr)
 		if err := server.ListenAndServe(); err != nil {
-			log.Fatalf("Server error: %v", err)
+			logger.Error("Server error: %v", "err", err.Error())
 		}
 	}()
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-  signal.Notify(sigChan, os.Kill)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	sig  := <- sigChan
-	logger.Info("Received terminate, graceful shutdown","signal", sig)
+	sig := <-sigChan
+	logger.Info("Received terminate, graceful shutdown", "signal", sig)
 
 	timeout := 30 * time.Second
 	timeoutContext, _ := context.WithTimeout(context.Background(), timeout)
-	server.Shutdown(timeoutContext)
+	if err := server.Shutdown(timeoutContext); err != nil {
+  	logger.Error("Graceful shutdown failed", "err", err)
+	}
 
 }
