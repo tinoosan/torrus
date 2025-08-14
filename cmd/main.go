@@ -3,24 +3,28 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
-  "github.com/gorilla/mux"
+	"github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/handlers"
 )
 
 func main() {
 
-	l := log.New(os.Stdout, "torrus-api ", log.LstdFlags)
+	//l := log.New(os.Stdout, "torrus-api ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	// create the handlers
-	downloadHandler := handlers.NewDownloads(l)
+	downloadHandler := handlers.NewDownloads(logger)
 
 	// create a new serve mux and register the handlers
 	r := mux.NewRouter()
+
+	r.Use(downloadHandler.Log)
 
 	getRouter := r.Methods("GET").Subrouter()
 	getRouter.HandleFunc("/downloads", downloadHandler.GetDownloads)
@@ -43,7 +47,7 @@ func main() {
 	}
 
 	go func() {
-		log.Println("Starting Torrus API on", server.Addr)
+		logger.Info("Starting Torrus API on", "port", server.Addr)
 		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
@@ -54,7 +58,7 @@ func main() {
   signal.Notify(sigChan, os.Kill)
 
 	sig  := <- sigChan
-	l.Println("Received terminate, graceful shutdown", sig)
+	logger.Info("Received terminate, graceful shutdown","signal", sig)
 
 	timeout := 30 * time.Second
 	timeoutContext, _ := context.WithTimeout(context.Background(), timeout)
