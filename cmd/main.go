@@ -8,29 +8,76 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/handlers"
 )
 
+type LogOptions struct {
+	Format, Path          string
+	MaxSize, Backups, Age int
+	Logger                *lumberjack.Logger
+}
+
+func (l *LogOptions) configLogOptions() (*lumberjack.Logger, error) {
+	l.Format = os.Getenv("LOG_FORMAT")
+	l.Path = os.Getenv("LOG_FILE_PATH")
+	if l.Path == "" {
+		l.Path = "./logs/torrus.log"
+	}
+
+	err := os.MkdirAll(filepath.Dir(l.Path), 0o755)
+	if err != nil {
+		return nil, fmt.Errorf("make log dir: %w", err)
+	}
+
+	l.MaxSize = intFromEnv("LOG_MAX_SIZE", 1)
+	l.Backups = intFromEnv("LOG_MAX_BACKUPS", 3)
+	l.Age = intFromEnv("LOG_MAX_AGE_DAYS", 7)
+
+	return &lumberjack.Logger{
+		Filename:   l.Path,
+		MaxSize:    l.MaxSize, // megabytes
+		MaxBackups: l.Backups,
+		MaxAge:     l.Age, // days
+		Compress:   false,
+	}, nil
+
+}
+
+func intFromEnv(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil {
+			return n
+		}
+	}
+	return def
+}
+
 func main() {
 
 	var logger *slog.Logger
 
-	f, err := os.OpenFile("./torrus.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+	logOptions := &LogOptions{}
+
+	rotator, err := logOptions.configLogOptions()
 	if err != nil {
-		fmt.Println("log file could not be opened or created: ", err)
+		fmt.Printf("Error: %v", err)
 		return
 	}
+	defer rotator.Close()
 
-	multiOut := io.MultiWriter(f, os.Stdout)
+	multiOut := io.MultiWriter(os.Stdout, rotator)
 
-	logFormat := os.Getenv("LOG_FORMAT")
-
-	switch strings.ToLower(logFormat) {
+	switch strings.ToLower(logOptions.Format) {
 	case "json":
 		logger = slog.New(slog.NewJSONHandler(multiOut, nil))
 	default:
@@ -65,11 +112,10 @@ func main() {
 		WriteTimeout: 1 * time.Second,
 	}
 
-
 	go func() {
 		logger.Info("Starting Torrus API on", "port", server.Addr)
 		if err := server.ListenAndServe(); err != nil {
-			logger.Error("Server error:", "err", err.Error())
+			logger.Error("Server error:", "err", err)
 		}
 	}()
 
@@ -78,12 +124,10 @@ func main() {
 
 	sig := <-sigChan
 	logger.Info("Received terminate, graceful shutdown", "signal", sig)
-	defer f.Close()
-
 	timeout := 30 * time.Second
 	timeoutContext, _ := context.WithTimeout(context.Background(), timeout)
 	if err := server.Shutdown(timeoutContext); err != nil {
-  	logger.Error("Graceful shutdown failed", "err", err)
+		logger.Error("Graceful shutdown failed", "err", err)
 	}
 
 }
