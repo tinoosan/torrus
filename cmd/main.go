@@ -16,8 +16,7 @@ import (
 
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"github.com/gorilla/mux"
-	"github.com/tinoosan/torrus/internal/handlers"
+	"github.com/tinoosan/torrus/internal/router"
 )
 
 type LogOptions struct {
@@ -84,25 +83,7 @@ func main() {
 		logger = slog.New(slog.NewTextHandler(multiOut, nil))
 	}
 
-	// create the handlers
-	downloadHandler := handlers.NewDownloads(logger)
-
-	// create a new serve mux and register the handlers
-	r := mux.NewRouter()
-
-	r.Use(downloadHandler.Log)
-
-	getRouter := r.Methods("GET").Subrouter()
-	getRouter.HandleFunc("/downloads", downloadHandler.GetDownloads)
-	getRouter.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.GetDownload)
-
-	postRouter := r.Methods("POST").Subrouter()
-	postRouter.HandleFunc("/downloads", downloadHandler.AddDownload)
-	postRouter.Use(downloadHandler.MiddlewareDownloadValidation)
-
-	patchRouter := r.Methods("PATCH").Subrouter()
-	patchRouter.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
-	patchRouter.Use(downloadHandler.MiddlewarePatchDesired)
+	r := router.New(logger)
 
 	server := &http.Server{
 		Addr:         ":9090",
@@ -113,8 +94,15 @@ func main() {
 	}
 
 	go func() {
+		logger.Info("logging configured",
+			"format", strings.ToLower(logOptions.Format),
+			"file", logOptions.Path,
+			"rotate_mb", logOptions.MaxSize,
+			"rotate_backups", logOptions.Backups,
+			"rotate_age_days", logOptions.Age,
+		)
 		logger.Info("Starting Torrus API on", "port", server.Addr)
-		if err := server.ListenAndServe(); err != nil {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Server error:", "err", err)
 		}
 	}()
@@ -125,7 +113,8 @@ func main() {
 	sig := <-sigChan
 	logger.Info("Received terminate, graceful shutdown", "signal", sig)
 	timeout := 30 * time.Second
-	timeoutContext, _ := context.WithTimeout(context.Background(), timeout)
+	timeoutContext, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	if err := server.Shutdown(timeoutContext); err != nil {
 		logger.Error("Graceful shutdown failed", "err", err)
 	}
