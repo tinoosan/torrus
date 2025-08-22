@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,11 +20,21 @@ func main() {
 
 	var logger *slog.Logger
 
-	switch strings.ToLower(os.Getenv("LOG_FORMAT")) {
+	f, err := os.OpenFile("./torrus.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+	if err != nil {
+		fmt.Println("log file could not be opened or created: ", err)
+		return
+	}
+
+	multiOut := io.MultiWriter(f, os.Stdout)
+
+	logFormat := os.Getenv("LOG_FORMAT")
+
+	switch strings.ToLower(logFormat) {
 	case "json":
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+		logger = slog.New(slog.NewJSONHandler(multiOut, nil))
 	default:
-		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		logger = slog.New(slog.NewTextHandler(multiOut, nil))
 	}
 
 	// create the handlers
@@ -53,10 +65,11 @@ func main() {
 		WriteTimeout: 1 * time.Second,
 	}
 
+
 	go func() {
 		logger.Info("Starting Torrus API on", "port", server.Addr)
 		if err := server.ListenAndServe(); err != nil {
-			logger.Error("Server error: %v", "err", err.Error())
+			logger.Error("Server error:", "err", err.Error())
 		}
 	}()
 
@@ -65,6 +78,7 @@ func main() {
 
 	sig := <-sigChan
 	logger.Info("Received terminate, graceful shutdown", "signal", sig)
+	defer f.Close()
 
 	timeout := 30 * time.Second
 	timeoutContext, _ := context.WithTimeout(context.Background(), timeout)
