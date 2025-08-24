@@ -6,6 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 	v1 "github.com/tinoosan/torrus/api/v1"
+	"github.com/tinoosan/torrus/internal/auth"
 )
 
 func New(logger *slog.Logger) *mux.Router {
@@ -19,6 +20,7 @@ func New(logger *slog.Logger) *mux.Router {
 	downloadHandler := v1.NewDownloads(logger)
 
 	r.Use(downloadHandler.Log)
+	r.Use(auth.Middleware)
 
 	api := r.PathPrefix("/v1").Subrouter()
 
