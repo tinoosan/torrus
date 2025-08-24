@@ -2,6 +2,7 @@ package router
 
 import (
 	"log/slog"
+	"net/http"
 
 	"github.com/gorilla/mux"
 	v1 "github.com/tinoosan/torrus/api/v1"
@@ -10,6 +11,10 @@ import (
 func New(logger *slog.Logger) *mux.Router {
 
 	r := mux.NewRouter()
+	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}).Methods("GET")
 
 	downloadHandler := v1.NewDownloads(logger)
 
