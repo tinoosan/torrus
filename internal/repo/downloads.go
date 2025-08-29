@@ -12,7 +12,7 @@ type DownloadRepo interface {
 }
 
 type DownloadReader interface {
-	List(ctx context.Context) (data.Downloads)
+	List(ctx context.Context) (data.Downloads, error)
 	Get(ctx context.Context, id int) (*data.Download, error)
 }
 

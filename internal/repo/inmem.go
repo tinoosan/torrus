@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/tinoosan/torrus/internal/data"
 )
@@ -17,14 +16,14 @@ type InMemoryDownloadRepo struct {
 func NewInMemoryDownloadRepo() *InMemoryDownloadRepo {
 	return &InMemoryDownloadRepo{
 		downloads: make(data.Downloads, 0),
-		nextID: 1,
+		nextID:    1,
 	}
 }
 
-func (r *InMemoryDownloadRepo) List(ctx context.Context) data.Downloads {
+func (r *InMemoryDownloadRepo) List(ctx context.Context) (data.Downloads, error){
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.downloads.Clone()
+	return r.downloads.Clone(), nil
 }
 
 func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download, error) {
@@ -43,21 +42,13 @@ func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data
 	defer r.mu.Unlock()
 	d.ID = r.nextID
 	r.nextID++
-	if d.CreatedAt.IsZero() {
-		d.CreatedAt = time.Now()
-	}
-	d.DesiredStatus = data.StatusQueued
-	d.Status = data.StatusQueued
 	r.downloads = append(r.downloads, d)
-	return d.Clone() , nil
+	return d.Clone(), nil
 }
 
 func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !data.AllowedStatuses[status] {
-		return nil, data.ErrBadStatus
-	}
 	dl, err := r.findByID(id)
 	if err != nil {
 		return nil, err

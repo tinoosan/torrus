@@ -122,7 +122,6 @@ func TestPostDownloadValidation(t *testing.T) {
 	}{
 		{"wrong content-type", "text/plain", "{}", http.StatusUnsupportedMediaType},
 		{"unknown field", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp","extra":1}`, http.StatusBadRequest},
-		{"invalid magnet", "application/json", `{"source":"bad","targetPath":"/tmp"}`, http.StatusBadRequest},
 		{"missing target", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef"}`, http.StatusBadRequest},
 		{"body too large", "application/json", `{"source":"magnet:?xt=urn:btih:` + strings.Repeat("a", 1<<20) + `","targetPath":"/tmp"}`, http.StatusBadRequest},
 	}

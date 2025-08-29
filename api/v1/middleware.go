@@ -32,20 +32,7 @@ func MiddlewareDownloadValidation(next http.Handler) http.Handler {
 			return
 		}
 
-		// Field validation
-		if !isMagnet(dl.Source) {
-			markErr(w, ErrMagnetURI)
-			http.Error(w, ErrMagnetURI.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if strings.TrimSpace(dl.TargetPath) == "" {
-			markErr(w, ErrTargetPath)
-			http.Error(w, ErrTargetPath.Error(), http.StatusBadRequest)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), ctxKeyDownload{}, dl)
+	    ctx := context.WithValue(r.Context(), ctxKeyDownload{}, dl)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
