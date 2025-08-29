@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	v1 "github.com/tinoosan/torrus/api/v1"
 	"github.com/tinoosan/torrus/internal/auth"
+	"github.com/tinoosan/torrus/internal/repo"
 )
 
 func New(logger *slog.Logger) *mux.Router {
@@ -17,7 +18,9 @@ func New(logger *slog.Logger) *mux.Router {
 		w.Write([]byte("ok"))
 	}).Methods("GET")
 
-	downloadHandler := v1.NewDownloads(logger)
+	downloadRepo := repo.NewInMemoryDownloadRepo()
+
+	downloadHandler := v1.NewDownloadHandler(logger, downloadRepo)
 
 	r.Use(downloadHandler.Log)
 	r.Use(auth.Middleware)
@@ -32,12 +35,12 @@ func New(logger *slog.Logger) *mux.Router {
 	// POSTs
 	post := api.Methods("POST").Subrouter()
 	post.HandleFunc("/downloads", downloadHandler.AddDownload)
-	post.Use(downloadHandler.MiddlewareDownloadValidation)
+	post.Use(v1.MiddlewareDownloadValidation)
 
 	// PATCHes
 	patch := api.Methods("PATCH").Subrouter()
 	patch.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
-	patch.Use(downloadHandler.MiddlewarePatchDesired)
+	patch.Use(v1.MiddlewarePatchDesired)
 
 	return r
 }

@@ -4,14 +4,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/data"
+	"github.com/tinoosan/torrus/internal/repo"
 )
 
-type Downloads struct {
+type DownloadHandler struct {
 	l *slog.Logger
+	repo repo.DownloadRepo
 }
 
 type patchBody struct {
@@ -58,13 +59,13 @@ func markErr(w http.ResponseWriter, err error) {
 type ctxKeyDownload struct{}
 type ctxKeyPatch struct{}
 
-func NewDownloads(l *slog.Logger) *Downloads {
-	return &Downloads{l}
+func NewDownloadHandler(l *slog.Logger, repo repo.DownloadRepo) *DownloadHandler {
+	return &DownloadHandler{l: l, repo: repo}
 }
 
-func (d *Downloads) GetDownloads(w http.ResponseWriter, r *http.Request) {
+func (dh *DownloadHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	dl := data.GetDownloads()
+	dl := dh.repo.List(r.Context())
 	err := dl.ToJSON(w)
 	if err != nil {
 		markErr(w, err)
@@ -73,7 +74,7 @@ func (d *Downloads) GetDownloads(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (d *Downloads) GetDownload(w http.ResponseWriter, r *http.Request) {
+func (dh *DownloadHandler) GetDownload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
@@ -82,7 +83,7 @@ func (d *Downloads) GetDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dl, err := data.FindByID(id)
+	dl, err := dh.repo.Get(r.Context(), id)
 	if err != nil {
 		markErr(w, err)
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -94,7 +95,7 @@ func (d *Downloads) GetDownload(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (d *Downloads) AddDownload(w http.ResponseWriter, r *http.Request) {
+func (dh *DownloadHandler) AddDownload(w http.ResponseWriter, r *http.Request) {
 
 	v := r.Context().Value(ctxKeyDownload{})
 	dl, ok := v.(*data.Download)
@@ -103,15 +104,14 @@ func (d *Downloads) AddDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, ErrDownloadCtx.Error(), http.StatusInternalServerError)
 		return
 	}
-	dl.CreatedAt = time.Now()
-	data.AddDownload(dl)
+	dh.repo.Add(r.Context(), dl)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = dl.ToJSON(w)
 }
 
-func (d *Downloads) UpdateDownload(w http.ResponseWriter, r *http.Request) {
+func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
@@ -128,7 +128,7 @@ func (d *Downloads) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := data.UpdateDesiredStatus(id, data.DownloadStatus(body.DesiredStatus))
+	updated, err := dh.repo.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
 	if err != nil {
 		switch err {
 		case data.ErrNotFound:
