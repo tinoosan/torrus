@@ -24,9 +24,7 @@ func NewInMemoryDownloadRepo() *InMemoryDownloadRepo {
 func (r *InMemoryDownloadRepo) List(ctx context.Context) data.Downloads {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make(data.Downloads, len(r.downloads))
-	copy(out, r.downloads)
-	return out
+	return r.downloads.Clone()
 }
 
 func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download, error) {
@@ -34,7 +32,7 @@ func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download,
 	defer r.mu.RUnlock()
 	for _, d := range r.downloads {
 		if d.ID == id {
-			return d, nil
+			return d.Clone(), nil
 		}
 	}
 	return nil, data.ErrNotFound
@@ -51,7 +49,7 @@ func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data
 	d.DesiredStatus = data.StatusQueued
 	d.Status = data.StatusQueued
 	r.downloads = append(r.downloads, d)
-	return d, nil
+	return d.Clone() , nil
 }
 
 func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
@@ -65,7 +63,7 @@ func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, 
 		return nil, err
 	}
 	dl.DesiredStatus = status
-	return dl, nil
+	return dl.Clone(), nil
 }
 
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
