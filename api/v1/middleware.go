@@ -1,4 +1,4 @@
-package handlers
+package v1
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/tinoosan/torrus/internal/data"
 )
 
-func (d *Downloads) MiddlewareDownloadValidation(next http.Handler) http.Handler {
+func MiddlewareDownloadValidation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if contentType := r.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(contentType, "application/json") {
 			// Content type
@@ -50,7 +50,7 @@ func (d *Downloads) MiddlewareDownloadValidation(next http.Handler) http.Handler
 	})
 }
 
-func (d *Downloads) MiddlewarePatchDesired(next http.Handler) http.Handler {
+func MiddlewarePatchDesired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if contentType := r.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(contentType, "application/json") {
 			markErr(w, ErrContentType)
@@ -81,7 +81,7 @@ func (d *Downloads) MiddlewarePatchDesired(next http.Handler) http.Handler {
 	})
 }
 
-func (d *Downloads) Log(next http.Handler) http.Handler {
+func (dh *DownloadHandler) Log(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
 		rw := &rwLogger{ResponseWriter: w}
@@ -92,7 +92,7 @@ func (d *Downloads) Log(next http.Handler) http.Handler {
 		timeElapsed := time.Since(startTime)
 		hErr := rw.err
 		if hErr != nil {
-			d.l.Error(hErr.Error(),
+			dh.l.Error(hErr.Error(),
 				"method", r.Method,
 				"url", r.URL.Path,
 				"status", rw.status,
@@ -103,7 +103,7 @@ func (d *Downloads) Log(next http.Handler) http.Handler {
 			return
 		}
 
-		d.l.Info("", "method", r.Method,
+		dh.l.Info("", "method", r.Method,
 			"url", r.URL.Path,
 			"status", rw.status,
 			"remote", r.RemoteAddr,
