@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -95,8 +96,10 @@ func TestInMemoryDownloadRepo_Get(t *testing.T) {
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("expected error %v got %v", tt.wantErr, err)
 			}
-			if tt.wantErr == nil && got != tt.want {
-				t.Fatalf("expected download %v got %v", tt.want, got)
+			if tt.wantErr == nil {
+				if !reflect.DeepEqual(*got, *tt.want) {
+					t.Fatalf("mismatch:\n got:  %#v\n want: %#v", got, tt.want)
+				}
 			}
 		})
 	}
