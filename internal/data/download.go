@@ -57,8 +57,7 @@ func (ds Downloads) Clone() Downloads {
 	out := make(Downloads, len(ds))
 	for i, d := range ds {
 		if d != nil {
-			cp := *d
-			out[i] = &cp
+			out[i] = d.Clone()
 		}
 	}
 	return out
