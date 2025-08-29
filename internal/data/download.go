@@ -45,5 +45,23 @@ func (d *Download) ToJSON(w io.Writer) error { return json.NewEncoder(w).Encode(
 
 func (d *Download) FromJSON(r io.Reader) error { return json.NewDecoder(r).Decode(d) }
 
+func (d *Download) Clone() *Download {
+	if d == nil {
+		return nil
+	}
+	cp := *d
+	return &cp
+}
+
+func (ds Downloads) Clone() Downloads {
+	out := make(Downloads, len(ds))
+	for i, d := range ds {
+		if d != nil {
+			cp := *d
+			out[i] = &cp
+		}
+	}
+	return out
+}
 func ParseID(s string) (int, error) { return strconv.Atoi(s) }
 
