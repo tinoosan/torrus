@@ -1,18 +1,19 @@
 package v1
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/data"
-	"github.com/tinoosan/torrus/internal/repo"
+	"github.com/tinoosan/torrus/internal/service"
 )
 
 type DownloadHandler struct {
-	l *slog.Logger
-	repo repo.DownloadRepo
+	l   *slog.Logger
+	svc service.Download
 }
 
 type patchBody struct {
@@ -59,13 +60,18 @@ func markErr(w http.ResponseWriter, err error) {
 type ctxKeyDownload struct{}
 type ctxKeyPatch struct{}
 
-func NewDownloadHandler(l *slog.Logger, repo repo.DownloadRepo) *DownloadHandler {
-	return &DownloadHandler{l: l, repo: repo}
+func NewDownloadHandler(l *slog.Logger, svc service.Download) *DownloadHandler {
+	return &DownloadHandler{l: l, svc: svc}
 }
 
 func (dh *DownloadHandler) GetDownloads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	dl := dh.repo.List(r.Context())
+	dl, err1 := dh.svc.List(r.Context())
+	if err1 != nil {
+		markErr(w, err1)
+		http.Error(w, err1.Error(), http.StatusInternalServerError)
+		return
+	}
 	err := dl.ToJSON(w)
 	if err != nil {
 		markErr(w, err)
@@ -83,7 +89,7 @@ func (dh *DownloadHandler) GetDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dl, err := dh.repo.Get(r.Context(), id)
+	dl, err := dh.svc.Get(r.Context(), id)
 	if err != nil {
 		markErr(w, err)
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -104,7 +110,16 @@ func (dh *DownloadHandler) AddDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, ErrDownloadCtx.Error(), http.StatusInternalServerError)
 		return
 	}
-	dh.repo.Add(r.Context(), dl)
+	_, err := dh.svc.Add(r.Context(), dl)
+	switch {
+	case errors.Is(err, data.ErrInvalidSource), errors.Is(err, data.ErrTargetPath):
+		markErr(w, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	case err != nil:
+	http.Error(w, "failed to create", http.StatusInternalServerError)
+	return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -128,7 +143,7 @@ func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	updated, err := dh.repo.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
+	updated, err := dh.svc.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
 	if err != nil {
 		switch err {
 		case data.ErrNotFound:

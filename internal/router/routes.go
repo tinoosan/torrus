@@ -8,6 +8,7 @@ import (
 	v1 "github.com/tinoosan/torrus/api/v1"
 	"github.com/tinoosan/torrus/internal/auth"
 	"github.com/tinoosan/torrus/internal/repo"
+	"github.com/tinoosan/torrus/internal/service"
 )
 
 func New(logger *slog.Logger) *mux.Router {
@@ -19,8 +20,9 @@ func New(logger *slog.Logger) *mux.Router {
 	}).Methods("GET")
 
 	downloadRepo := repo.NewInMemoryDownloadRepo()
+	downloadSvc := service.NewDownload(downloadRepo)
 
-	downloadHandler := v1.NewDownloadHandler(logger, downloadRepo)
+	downloadHandler := v1.NewDownloadHandler(logger, downloadSvc)
 
 	r.Use(downloadHandler.Log)
 	r.Use(auth.Middleware)

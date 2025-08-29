@@ -30,14 +30,11 @@ type Downloads []*Download
 type DownloadStatus string
 
 var (
-	ErrNotFound     = errors.New("download not found")
-	ErrBadStatus    = errors.New("invalid status")
-	AllowedStatuses = map[DownloadStatus]bool{
-		StatusActive:    true,
-		StatusPaused:    true,
-		StatusCancelled: true,
-	}
-)
+	ErrNotFound      = errors.New("download not found")
+	ErrBadStatus     = errors.New("invalid status")
+	ErrInvalidSource = errors.New("invalid source")
+	ErrTargetPath    = errors.New("invalid target path")
+	)
 
 func (d *Downloads) ToJSON(w io.Writer) error { return json.NewEncoder(w).Encode(d) }
 
@@ -63,4 +60,3 @@ func (ds Downloads) Clone() Downloads {
 	return out
 }
 func ParseID(s string) (int, error) { return strconv.Atoi(s) }
-

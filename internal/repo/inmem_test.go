@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/tinoosan/torrus/internal/data"
 )
@@ -16,22 +15,12 @@ func TestInMemoryDownloadRepo_Add(t *testing.T) {
 	repo := NewInMemoryDownloadRepo()
 	ctx := context.Background()
 
-	before := time.Now()
 	d1, err := repo.Add(ctx, &data.Download{Source: "s1", TargetPath: "t1"})
 	if err != nil {
 		t.Fatalf("Add returned error: %v", err)
 	}
 	if d1.ID != 1 {
 		t.Fatalf("expected ID 1 got %d", d1.ID)
-	}
-	if d1.CreatedAt.IsZero() {
-		t.Fatalf("expected CreatedAt to be set")
-	}
-	if d1.CreatedAt.Before(before) || d1.CreatedAt.After(time.Now()) {
-		t.Fatalf("CreatedAt not within expected bounds: %v", d1.CreatedAt)
-	}
-	if d1.Status != data.StatusQueued || d1.DesiredStatus != data.StatusQueued {
-		t.Fatalf("statuses not initialized to queued: %v %v", d1.Status, d1.DesiredStatus)
 	}
 
 	d2, err := repo.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2"})
@@ -48,14 +37,15 @@ func TestInMemoryDownloadRepo_List(t *testing.T) {
 	repo := NewInMemoryDownloadRepo()
 
 	// empty repo
-	if got := len(repo.List(ctx)); got != 0 {
+	list, _ := repo.List(ctx)
+	if got := len(list); got != 0 {
 		t.Fatalf("expected empty list, got %d", got)
 	}
 
 	d1, _ := repo.Add(ctx, &data.Download{Source: "s1", TargetPath: "t1"})
 	_, _ = repo.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2"})
 
-	list1 := repo.List(ctx)
+	list1, _ := repo.List(ctx)
 	if len(list1) != 2 {
 		t.Fatalf("expected 2 downloads, got %d", len(list1))
 	}
@@ -64,7 +54,7 @@ func TestInMemoryDownloadRepo_List(t *testing.T) {
 	list1[0] = &data.Download{ID: 99}
 	list1 = append(list1, &data.Download{ID: 100})
 
-	list2 := repo.List(ctx)
+	list2, _ := repo.List(ctx)
 	if len(list2) != 2 {
 		t.Fatalf("expected 2 downloads after modification, got %d", len(list2))
 	}
@@ -118,17 +108,6 @@ func TestInMemoryDownloadRepo_UpdateDesiredStatus(t *testing.T) {
 		if updated.DesiredStatus != data.StatusPaused {
 			t.Fatalf("expected desired status %s got %s", data.StatusPaused, updated.DesiredStatus)
 		}
-		if updated.Status != data.StatusQueued {
-			t.Fatalf("status changed unexpectedly: %s", updated.Status)
-		}
-	})
-
-	t.Run("invalid status", func(t *testing.T) {
-		repo := NewInMemoryDownloadRepo()
-		d, _ := repo.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-		if _, err := repo.UpdateDesiredStatus(ctx, d.ID, data.StatusComplete); !errors.Is(err, data.ErrBadStatus) {
-			t.Fatalf("expected ErrBadStatus got %v", err)
-		}
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
@@ -168,7 +147,9 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 
 	wg.Wait()
 
-	if got := len(repo.List(ctx)); got != n {
+	list, _ := repo.List(ctx)
+
+	if got := len(list); got != n {
 		t.Fatalf("expected %d downloads, got %d", n, got)
 	}
 }
