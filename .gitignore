@@ -1,2 +1,12 @@
-go.sum
+.git
+.gitignore
+**/*.swp
+**/*.swo
+**/*.log
 logs/
+bin/
+dist/
+coverage.out
+.vscode/
+.idea/
+.env
