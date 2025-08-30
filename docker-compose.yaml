@@ -51,8 +51,6 @@ services:
     volumes:
       - ./logs:/var/log/torrus
       - ./downloads:/downloads
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
-      interval: 5s
-      timeout: 2s
-      retries: 10
+    # Distroless base image lacks shell utilities such as curl, so we
+    # can't run an in-container HTTP health probe. The integration
+    # workflow checks the API's health from the host instead.
