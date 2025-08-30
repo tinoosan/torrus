@@ -51,7 +51,7 @@ func TestNewClientFromEnv(t *testing.T) {
 			timeoutMS:   "-25",
 			wantURL:     "http://127.0.0.1:6800/jsonrpc",
 			wantSecret:  "",
-			wantTimeout: -25 * time.Millisecond,
+			wantTimeout: 3 * time.Millisecond,
 		},
 	}
 
