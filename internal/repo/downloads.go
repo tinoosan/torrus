@@ -19,4 +19,5 @@ type DownloadReader interface {
 type DownloadWriter interface {
 	Add(ctx context.Context, download *data.Download) (*data.Download, error)
 	UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
+	SetStatus(ctx context.Context, id int, status data.DownloadStatus) error
 }

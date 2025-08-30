@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tinoosan/torrus/internal/data"
+	"github.com/tinoosan/torrus/internal/downloader"
 	"github.com/tinoosan/torrus/internal/repo"
 )
 
@@ -26,11 +27,13 @@ var (
 
 type download struct {
 	repo repo.DownloadRepo
+	dlr  downloader.Downloader
 }
 
-func NewDownload (repo repo.DownloadRepo) Download {
+func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader) Download {
 	return &download{
 		repo: repo,
+		dlr:  dlr,
 	}
 }
 
@@ -53,19 +56,61 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	if d.CreatedAt.IsZero() {
 		d.CreatedAt = time.Now()
 	}
-	if d.DesiredStatus == "" {
+
+	switch d.DesiredStatus {
+	case "", data.StatusQueued:
 		d.DesiredStatus = data.StatusQueued
+		d.Status = data.StatusQueued
+	case data.StatusActive:
+		d.Status = data.StatusActive
+	case data.StatusPaused:
+		d.Status = data.StatusPaused
+	case data.StatusCancelled:
+		return nil, data.ErrBadStatus
+	default:
+		return nil, data.ErrBadStatus
 	}
 
-	if d.Status == "" {
-		d.Status = data.StatusQueued
+	saved, err := ds.repo.Add(ctx, d)
+	if err != nil {
+		return nil, err
 	}
-	return ds.repo.Add(ctx, d)
+
+	if saved.Status == data.StatusActive {
+		go func(id int) {
+			_ = ds.dlr.Start(context.Background(), id)
+		}(saved.ID)
+	}
+	return saved, nil
 }
 
 func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
 	if !AllowedStatuses[status] {
 		return nil, data.ErrBadStatus
 	}
-	return ds.repo.UpdateDesiredStatus(ctx, id, status)
+
+	d, err := ds.repo.UpdateDesiredStatus(ctx, id, status)
+	if err != nil {
+		return nil, err
+	}
+	var derr error
+	switch status {
+	case data.StatusActive:
+		derr = ds.dlr.Start(context.Background(), id)
+	case data.StatusPaused:
+		derr = ds.dlr.Pause(context.Background(), id)
+	case data.StatusCancelled:
+		derr = ds.dlr.Cancel(context.Background(), id)
+	}
+
+	if derr != nil {
+		_ = ds.repo.SetStatus(ctx, id, data.StatusError)
+		return nil, derr
+	}
+
+	if err := ds.repo.SetStatus(ctx, id, status); err != nil {
+		return nil, err
+	}
+	d.Status = status
+	return d, nil
 }
