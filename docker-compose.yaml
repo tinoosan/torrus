@@ -43,6 +43,8 @@ services:
       - ARIA2_RPC_URL=${ARIA2_RPC_URL:-http://aria2:6800/jsonrpc}
       - ARIA2_SECRET=${ARIA2_SECRET:-changeme}
       - ARIA2_TIMEOUT_MS=${ARIA2_TIMEOUT_MS:-5000}
+      # API auth
+      - TORRUS_API_TOKEN=${TORRUS_API_TOKEN:-changeme}
     ports:
       - "9090:9090"
     volumes:

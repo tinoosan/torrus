@@ -38,6 +38,7 @@ jobs:
           ARIA2_RPC_URL=http://aria2:6800/jsonrpc
           ARIA2_SECRET=ci-secret
           ARIA2_TIMEOUT_MS=5000
+          TORRUS_API_TOKEN=ci-token
           EOF
 
       - name: Start stack
@@ -65,6 +66,7 @@ jobs:
         run: |
           curl -fsS -X POST http://localhost:9090/v1/downloads \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ci-token" \
             -d '{"source":"https://speed.hetzner.de/1MB.bin","targetPath":"/data"}' \
             | tee /tmp/new.json
 
@@ -73,10 +75,12 @@ jobs:
 
           curl -fsS -X PATCH "http://localhost:9090/v1/downloads/$ID" \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ci-token" \
             -d '{"desiredStatus":"Paused"}' >/dev/null
 
           # list
-          curl -fsS http://localhost:9090/v1/downloads | jq .
+          curl -fsS http://localhost:9090/v1/downloads \
+            -H "Authorization: Bearer ci-token" | jq .
 
       - name: Logs on failure
         if: failure()
