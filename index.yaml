@@ -5,24 +5,20 @@ info:
   description: |
     API for managing and monitoring downloads.
 
-    - All API routes are served under `/v1` (except `/healthz`)
+    - All endpoints are served under `/v1`
     - Request bodies are **strict JSON** (unknown fields rejected)
-    - Request body max size ~1 MiB
-    - `Content-Type` must be `application/json`
+    - POST body max size ~1 MiB (requests larger than this are rejected)
 
 servers:
-  - url: http://localhost:9090
+  - url: http://localhost:9090/v1
     description: Local development
-
-security:
-  - ApiTokenAuth: []
 
 tags:
   - name: Downloads
     description: Manage downloads
 
 paths:
-  /v1/downloads:
+  /downloads:
     get:
       tags: [Downloads]
       summary: List downloads
@@ -67,7 +63,7 @@ paths:
         "500":
           $ref: "#/components/responses/PlainError"
 
-  /v1/downloads/{id}:
+  /downloads/{id}:
     parameters:
       - name: id
         in: path
@@ -124,20 +120,6 @@ paths:
         "500":
           $ref: "#/components/responses/PlainError"
 
-  /healthz:
-    get:
-      summary: Health check
-      operationId: healthz
-      security: []
-      responses:
-        "200":
-          description: Service is healthy
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: ok
-
 components:
   responses:
     PlainError:
@@ -161,11 +143,10 @@ components:
         id:
           type: integer
           format: int32
-          readOnly: true
           example: 2
         source:
           type: string
-          description: Download source link (e.g. magnet URI, HTTP URL)
+          description: Magnet URI
           example: "magnet:?xt=urn:btih:1300da4907fcec1470bb3cd31563bb401cd33c14..."
         targetPath:
           type: string
@@ -173,13 +154,11 @@ components:
           example: "/movies/"
         status:
           $ref: "#/components/schemas/DownloadStatus"
-          readOnly: true
         desiredStatus:
           $ref: "#/components/schemas/DownloadStatus"
         createdAt:
           type: string
           format: date-time
-          readOnly: true
           example: "2025-08-22T12:34:56Z"
       required:
         - id
@@ -194,7 +173,7 @@ components:
       properties:
         source:
           type: string
-          description: Download source link (e.g. magnet URI, HTTP URL)
+          description: Magnet URI to start
           example: "magnet:?xt=urn:btih:a216611be5b8d8c6306748d132774aa514977ee8..."
         targetPath:
           type: string
@@ -209,20 +188,17 @@ components:
       additionalProperties: false
       properties:
         desiredStatus:
-          type: string
           description: Desired state of the download
-          enum: ["Active", "Paused", "Cancelled"]
+          allOf:
+            - $ref: "#/components/schemas/DownloadStatus"
       required:
         - desiredStatus
 
     DownloadStatus:
       type: string
-      description: Current/desired download status.
+      description: |
+        Current/desired download status.
+
+        **Note:** The API only accepts `Active`, `Paused`, `Cancelled` for PATCH.
       enum: ["Queued", "Active", "Paused", "Complete", "Cancelled", "Failed"]
       example: "Queued"
-
-  securitySchemes:
-    ApiTokenAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: API token
