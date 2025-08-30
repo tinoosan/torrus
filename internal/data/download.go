@@ -10,6 +10,7 @@ import (
 
 type Download struct {
 	ID            int            `json:"id"`
+	GID           string         `json:"gid"`
 	Source        string         `json:"source"`
 	TargetPath    string         `json:"targetPath"`
 	Status        DownloadStatus `json:"status"`
@@ -34,7 +35,7 @@ var (
 	ErrBadStatus     = errors.New("invalid status")
 	ErrInvalidSource = errors.New("invalid source")
 	ErrTargetPath    = errors.New("invalid target path")
-	)
+)
 
 func (d *Downloads) ToJSON(w io.Writer) error { return json.NewEncoder(w).Encode(d) }
 
