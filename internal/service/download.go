@@ -58,9 +58,9 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	}
 
 	switch d.DesiredStatus {
-	case "":
-		d.DesiredStatus = data.StatusActive
-		d.Status = data.StatusActive
+	case "", data.StatusQueued:
+		d.DesiredStatus = data.StatusQueued
+		d.Status = data.StatusQueued
 	case data.StatusActive:
 		d.Status = data.StatusActive
 	case data.StatusPaused:
@@ -77,11 +77,9 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	}
 
 	if saved.Status == data.StatusActive {
-
 		go func(id int) {
 			_ = ds.dlr.Start(context.Background(), id)
 		}(saved.ID)
-
 	}
 	return saved, nil
 }
@@ -95,19 +93,24 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 	if err != nil {
 		return nil, err
 	}
+	var derr error
+	switch status {
+	case data.StatusActive:
+		derr = ds.dlr.Start(ctx, id)
+	case data.StatusPaused:
+		derr = ds.dlr.Pause(ctx, id)
+	case data.StatusCancelled:
+		derr = ds.dlr.Cancel(ctx, id)
+	}
 
-	go func(s data.DownloadStatus, id int) {
-		switch s {
-		case data.StatusActive:
-			ds.dlr.Start(context.Background(), id)
-			ds.repo.SetStatus(context.Background(), id, s)
-		case data.StatusPaused:
-			ds.dlr.Pause(context.Background(), id)
-			ds.repo.SetStatus(context.Background(), id, s)
-		case data.StatusCancelled:
-			ds.dlr.Cancel(context.Background(), id)
-			ds.repo.SetStatus(context.Background(), id, s)
-		}
-	}(status, id)
+	if derr != nil {
+		_ = ds.repo.SetStatus(ctx, id, data.StatusError)
+		return nil, derr
+	}
+
+	if err := ds.repo.SetStatus(ctx, id, status); err != nil {
+		return nil, err
+	}
+	d.Status = status
 	return d, nil
 }

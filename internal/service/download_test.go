@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tinoosan/torrus/internal/data"
+	"github.com/tinoosan/torrus/internal/downloader"
 	"github.com/tinoosan/torrus/internal/repo"
 )
 
@@ -15,14 +16,54 @@ type mockDownloadRepo struct {
 	getFn    func(ctx context.Context, id int) (*data.Download, error)
 	addFn    func(ctx context.Context, d *data.Download) (*data.Download, error)
 	updateFn func(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
+	setFn    func(ctx context.Context, id int, status data.DownloadStatus) error
 
 	listCalled   bool
 	getCalled    bool
 	addCalled    bool
 	updateCalled bool
+	setCalled    bool
+
+	setArgs struct {
+		id     int
+		status data.DownloadStatus
+	}
 }
 
 var _ repo.DownloadRepo = (*mockDownloadRepo)(nil)
+
+type mockDownloader struct {
+	startCalled, pauseCalled, cancelCalled bool
+	startFn                                func(ctx context.Context, id int) error
+	pauseFn                                func(ctx context.Context, id int) error
+	cancelFn                               func(ctx context.Context, id int) error
+}
+
+func (m *mockDownloader) Start(ctx context.Context, id int) error {
+	m.startCalled = true
+	if m.startFn != nil {
+		return m.startFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockDownloader) Pause(ctx context.Context, id int) error {
+	m.pauseCalled = true
+	if m.pauseFn != nil {
+		return m.pauseFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockDownloader) Cancel(ctx context.Context, id int) error {
+	m.cancelCalled = true
+	if m.cancelFn != nil {
+		return m.cancelFn(ctx, id)
+	}
+	return nil
+}
+
+var _ downloader.Downloader = (*mockDownloader)(nil)
 
 func (m *mockDownloadRepo) List(ctx context.Context) (data.Downloads, error) {
 	m.listCalled = true
@@ -56,6 +97,16 @@ func (m *mockDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, stat
 	return nil, nil
 }
 
+func (m *mockDownloadRepo) SetStatus(ctx context.Context, id int, status data.DownloadStatus) error {
+	m.setCalled = true
+	m.setArgs.id = id
+	m.setArgs.status = status
+	if m.setFn != nil {
+		return m.setFn(ctx, id, status)
+	}
+	return nil
+}
+
 func TestDownloadService_List(t *testing.T) {
 	ctx := context.Background()
 	want := data.Downloads{{ID: 1}, {ID: 2}}
@@ -64,7 +115,7 @@ func TestDownloadService_List(t *testing.T) {
 			return want, nil
 		},
 	}
-	svc := NewDownload(m)
+	svc := NewDownload(m, &mockDownloader{})
 	got, err := svc.List(ctx)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
@@ -89,7 +140,7 @@ func TestDownloadService_Get(t *testing.T) {
 				return d, nil
 			},
 		}
-		svc := NewDownload(m)
+		svc := NewDownload(m, &mockDownloader{})
 		got, err := svc.Get(ctx, d.ID)
 		if err != nil {
 			t.Fatalf("Get returned error: %v", err)
@@ -108,7 +159,7 @@ func TestDownloadService_Get(t *testing.T) {
 				return nil, data.ErrNotFound
 			},
 		}
-		svc := NewDownload(m)
+		svc := NewDownload(m, &mockDownloader{})
 		got, err := svc.Get(ctx, 1)
 		if !errors.Is(err, data.ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
@@ -134,7 +185,7 @@ func TestDownloadService_Add(t *testing.T) {
 				return d, nil
 			},
 		}
-		svc := NewDownload(m)
+		svc := NewDownload(m, &mockDownloader{})
 		input := &data.Download{Source: "s", TargetPath: "t"}
 		got, err := svc.Add(ctx, input)
 		if err != nil {
@@ -162,7 +213,7 @@ func TestDownloadService_Add(t *testing.T) {
 
 	t.Run("missing source", func(t *testing.T) {
 		m := &mockDownloadRepo{}
-		svc := NewDownload(m)
+		svc := NewDownload(m, &mockDownloader{})
 		_, err := svc.Add(ctx, &data.Download{TargetPath: "t"})
 		if !errors.Is(err, data.ErrInvalidSource) {
 			t.Fatalf("expected ErrInvalidSource got %v", err)
@@ -174,7 +225,7 @@ func TestDownloadService_Add(t *testing.T) {
 
 	t.Run("missing target path", func(t *testing.T) {
 		m := &mockDownloadRepo{}
-		svc := NewDownload(m)
+		svc := NewDownload(m, &mockDownloader{})
 		_, err := svc.Add(ctx, &data.Download{Source: "s"})
 		if !errors.Is(err, data.ErrTargetPath) {
 			t.Fatalf("expected ErrTargetPath got %v", err)
@@ -187,41 +238,157 @@ func TestDownloadService_Add(t *testing.T) {
 
 func TestDownloadService_UpdateDesiredStatus(t *testing.T) {
 	ctx := context.Background()
-	valid := []data.DownloadStatus{data.StatusActive, data.StatusPaused, data.StatusCancelled}
-	for _, st := range valid {
-		t.Run("valid "+string(st), func(t *testing.T) {
-			m := &mockDownloadRepo{
-				updateFn: func(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
-					if status != st {
-						t.Fatalf("expected status %s got %s", st, status)
-					}
-					return &data.Download{ID: id, DesiredStatus: status}, nil
-				},
-			}
-			svc := NewDownload(m)
-			got, err := svc.UpdateDesiredStatus(ctx, 1, st)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !m.updateCalled {
-				t.Fatalf("expected repo UpdateDesiredStatus to be called")
-			}
-			if got.DesiredStatus != st {
-				t.Fatalf("expected desired status %s got %s", st, got.DesiredStatus)
-			}
-		})
-	}
+
+	t.Run("Active \u2192 calls Start and sets status=Active", func(t *testing.T) {
+		mRepo := &mockDownloadRepo{
+			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
+				if s != data.StatusActive {
+					t.Fatalf("expected desired Active, got %s", s)
+				}
+				return &data.Download{ID: 42, DesiredStatus: s, Status: data.StatusQueued}, nil
+			},
+			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
+				if id != 42 {
+					t.Fatalf("SetStatus id mismatch: %d", id)
+				}
+				if s != data.StatusActive {
+					t.Fatalf("expected final status Active, got %s", s)
+				}
+				return nil
+			},
+		}
+		mDL := &mockDownloader{}
+
+		svc := NewDownload(mRepo, mDL)
+		got, err := svc.UpdateDesiredStatus(ctx, 42, data.StatusActive)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if !mDL.startCalled {
+			t.Fatalf("expected Start to be called")
+		}
+		if !mRepo.setCalled {
+			t.Fatalf("expected SetStatus to be called")
+		}
+		if got.DesiredStatus != data.StatusActive {
+			t.Fatalf("got desired %s", got.DesiredStatus)
+		}
+	})
+
+	t.Run("Paused \u2192 calls Pause and sets status=Paused", func(t *testing.T) {
+		mRepo := &mockDownloadRepo{
+			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
+				if s != data.StatusPaused {
+					t.Fatalf("expected desired Paused, got %s", s)
+				}
+				return &data.Download{ID: 7, DesiredStatus: s, Status: data.StatusQueued}, nil
+			},
+			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
+				if id != 7 {
+					t.Fatalf("SetStatus id mismatch: %d", id)
+				}
+				if s != data.StatusPaused {
+					t.Fatalf("expected final status Paused, got %s", s)
+				}
+				return nil
+			},
+		}
+		mDL := &mockDownloader{}
+
+		svc := NewDownload(mRepo, mDL)
+		got, err := svc.UpdateDesiredStatus(ctx, 7, data.StatusPaused)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if !mDL.pauseCalled {
+			t.Fatalf("expected Pause to be called")
+		}
+		if !mRepo.setCalled {
+			t.Fatalf("expected SetStatus to be called")
+		}
+		if got.DesiredStatus != data.StatusPaused {
+			t.Fatalf("got desired %s", got.DesiredStatus)
+		}
+	})
+
+	t.Run("Cancelled \u2192 calls Cancel and sets status=Cancelled", func(t *testing.T) {
+		mRepo := &mockDownloadRepo{
+			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
+				if s != data.StatusCancelled {
+					t.Fatalf("expected desired Cancelled, got %s", s)
+				}
+				return &data.Download{ID: 3, DesiredStatus: s, Status: data.StatusQueued}, nil
+			},
+			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
+				if id != 3 {
+					t.Fatalf("SetStatus id mismatch: %d", id)
+				}
+				if s != data.StatusCancelled {
+					t.Fatalf("expected final status Cancelled, got %s", s)
+				}
+				return nil
+			},
+		}
+		mDL := &mockDownloader{}
+
+		svc := NewDownload(mRepo, mDL)
+		got, err := svc.UpdateDesiredStatus(ctx, 3, data.StatusCancelled)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if !mDL.cancelCalled {
+			t.Fatalf("expected Cancel to be called")
+		}
+		if !mRepo.setCalled {
+			t.Fatalf("expected SetStatus to be called")
+		}
+		if got.DesiredStatus != data.StatusCancelled {
+			t.Fatalf("got desired %s", got.DesiredStatus)
+		}
+	})
+
+	t.Run("Downloader error \u2192 sets status=Failed", func(t *testing.T) {
+		mRepo := &mockDownloadRepo{
+			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
+				return &data.Download{ID: 99, DesiredStatus: s, Status: data.StatusQueued}, nil
+			},
+			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
+				if s != data.StatusError {
+					t.Fatalf("expected final status Failed, got %s", s)
+				}
+				return nil
+			},
+		}
+		mDL := &mockDownloader{
+			startFn: func(ctx context.Context, id int) error { return errors.New("boom") },
+		}
+
+		svc := NewDownload(mRepo, mDL)
+		got, err := svc.UpdateDesiredStatus(ctx, 99, data.StatusActive)
+		if err == nil {
+			t.Fatalf("expected error from downloader")
+		}
+		if !mDL.startCalled {
+			t.Fatalf("expected Start to be called")
+		}
+		if !mRepo.setCalled {
+			t.Fatalf("expected SetStatus(Failed) to be called")
+		}
+		if got != nil {
+			t.Fatalf("expected nil result on failure")
+		}
+	})
 
 	invalid := []data.DownloadStatus{data.StatusQueued, data.StatusComplete, data.StatusError, "bogus"}
 	for _, st := range invalid {
 		t.Run("invalid "+string(st), func(t *testing.T) {
-			m := &mockDownloadRepo{}
-			svc := NewDownload(m)
+			mRepo := &mockDownloadRepo{}
+			svc := NewDownload(mRepo, &mockDownloader{})
 			_, err := svc.UpdateDesiredStatus(ctx, 1, st)
 			if !errors.Is(err, data.ErrBadStatus) {
 				t.Fatalf("expected ErrBadStatus got %v", err)
 			}
-			if m.updateCalled {
+			if mRepo.updateCalled {
 				t.Fatalf("repo should not be called for invalid status")
 			}
 		})
