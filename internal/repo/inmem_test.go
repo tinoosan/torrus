@@ -153,3 +153,97 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 		t.Fatalf("expected %d downloads, got %d", n, got)
 	}
 }
+
+func TestInMemoryDownloadRepo_SetGID_Success(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+
+	d, err := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+	if err != nil {
+		t.Fatalf("Add error: %v", err)
+	}
+
+	if err := r.SetGID(ctx, d.ID, "G123"); err != nil {
+		t.Fatalf("SetGID error: %v", err)
+	}
+
+	got, err := r.Get(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if got.GID != "G123" {
+		t.Fatalf("expected GID G123, got %q", got.GID)
+	}
+}
+
+func TestInMemoryDownloadRepo_SetGID_NotFound(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+
+	if err := r.SetGID(ctx, 999, "G999"); !errors.Is(err, data.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestInMemoryDownloadRepo_SetGID_Overwrite(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+
+	d, err := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+	if err != nil {
+		t.Fatalf("Add error: %v", err)
+	}
+
+	if err := r.SetGID(ctx, d.ID, "G1"); err != nil {
+		t.Fatalf("SetGID first error: %v", err)
+	}
+	if err := r.SetGID(ctx, d.ID, "G2"); err != nil {
+		t.Fatalf("SetGID second error: %v", err)
+	}
+
+	got, err := r.Get(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if got.GID != "G2" {
+		t.Fatalf("expected GID G2, got %q", got.GID)
+	}
+}
+
+func TestInMemoryDownloadRepo_SetGID_Concurrent(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+
+	d, err := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+	if err != nil {
+		t.Fatalf("Add error: %v", err)
+	}
+
+	gids := []string{"G1", "G2", "G3", "G4", "G5"}
+	var wg sync.WaitGroup
+	for _, gid := range gids {
+		wg.Add(1)
+		go func(g string) {
+			defer wg.Done()
+			if err := r.SetGID(ctx, d.ID, g); err != nil {
+				t.Errorf("SetGID error: %v", err)
+			}
+		}(gid)
+	}
+	wg.Wait()
+
+	got, err := r.Get(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	found := false
+	for _, g := range gids {
+		if got.GID == g {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("final GID %q not among %v", got.GID, gids)
+	}
+}
