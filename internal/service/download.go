@@ -78,7 +78,7 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 
 	if saved.Status == data.StatusActive {
 		go func(id int) {
-			_ = ds.dlr.Start(context.Background(), id)
+			_ = ds.dlr.Start(context.Background(), saved)
 		}(saved.ID)
 	}
 	return saved, nil
@@ -96,11 +96,11 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 	var derr error
 	switch status {
 	case data.StatusActive:
-		derr = ds.dlr.Start(context.Background(), id)
+		derr = ds.dlr.Start(context.Background(), d)
 	case data.StatusPaused:
-		derr = ds.dlr.Pause(context.Background(), id)
+		derr = ds.dlr.Pause(context.Background(), d)
 	case data.StatusCancelled:
-		derr = ds.dlr.Cancel(context.Background(), id)
+		derr = ds.dlr.Cancel(context.Background(), d)
 	}
 
 	if derr != nil {
