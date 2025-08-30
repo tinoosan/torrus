@@ -1,24 +1,16 @@
 package router
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/mux"
 	v1 "github.com/tinoosan/torrus/api/v1"
-	"github.com/tinoosan/torrus/internal/aria2"
 	"github.com/tinoosan/torrus/internal/auth"
-	"github.com/tinoosan/torrus/internal/downloader"
-	aria2dl "github.com/tinoosan/torrus/internal/downloader/aria2"
-	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/service"
 )
 
-func New(logger *slog.Logger) *mux.Router {
-
-	var dlr downloader.Downloader
+func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 
 	r := mux.NewRouter()
 	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -27,23 +19,6 @@ func New(logger *slog.Logger) *mux.Router {
 			logger.Error("write healthz response", "err", err)
 		}
 	}).Methods("GET")
-
-	downloadRepo := repo.NewInMemoryDownloadRepo()
-
-	switch os.Getenv("TORRUS_CLIENT") {
-	case "aria2":
-		aria2Client, err := aria2.NewClientFromEnv()
-		if err != nil {
-			fmt.Println("Error:", err)
-			dlr = downloader.NewNoopDownloader()
-		} else {
-			dlr = aria2dl.NewAdapter(aria2Client)
-		}
-	default:
-		dlr = downloader.NewNoopDownloader()
-	}
-
-	downloadSvc := service.NewDownload(downloadRepo, dlr)
 
 	downloadHandler := v1.NewDownloadHandler(logger, downloadSvc)
 
