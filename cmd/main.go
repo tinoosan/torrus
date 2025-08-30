@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"gopkg.in/natefinch/lumberjack.v2"
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/tinoosan/torrus/internal/router"
 )
