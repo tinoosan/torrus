@@ -23,7 +23,9 @@ func New(logger *slog.Logger) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			logger.Error("write healthz response", "err", err)
+		}
 	}).Methods("GET")
 
 	downloadRepo := repo.NewInMemoryDownloadRepo()
