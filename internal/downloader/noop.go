@@ -3,6 +3,7 @@ package downloader
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/tinoosan/torrus/internal/data"
 )
@@ -13,9 +14,9 @@ func NewNoopDownloader() Downloader {
 	return &noopDownloader{}
 }
 
-func (d *noopDownloader) Start(ctx context.Context, dl *data.Download) error {
+func (d *noopDownloader) Start(ctx context.Context, dl *data.Download) (string, error) {
 	fmt.Println("noop: start", dl.ID)
-	return nil
+	return strconv.FormatInt(int64(dl.ID), 10), nil
 }
 
 

@@ -79,6 +79,16 @@ func (r *InMemoryDownloadRepo) SetGID(ctx context.Context, id int, gid string) e
 	return nil
 }
 
+func (r *InMemoryDownloadRepo) ClearGID(ctx context.Context, id int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	dl, err := r.findByID(id)
+	if err != nil {
+		return err
+	}
+	dl.GID = ""
+	return nil
+}
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
 	for _, dl := range r.downloads {
 		if dl.ID == id {
