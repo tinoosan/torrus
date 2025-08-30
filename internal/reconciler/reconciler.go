@@ -95,8 +95,7 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
-	terminal := e.Type == downloader.EventCancelled || e.Type == downloader.EventComplete || e.Type == downloader.EventFailed
-	if terminal && !r.checkTerminal(e) {
+	if checkTerminal && !r.checkTerminal(e) {
 		return
 	}
 
@@ -105,7 +104,7 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
-	if terminal {
+	if checkTerminal {
 		if err := r.repo.ClearGID(context.Background(), e.ID); err != nil {
 			r.log.Error("clear gid", "id", e.ID, "err", err)
 		}
