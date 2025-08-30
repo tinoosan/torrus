@@ -72,7 +72,11 @@ func main() {
 		fmt.Printf("Error: %v", err)
 		return
 	}
-	defer rotator.Close()
+	defer func() {
+		if err := rotator.Close(); err != nil {
+			fmt.Printf("close log file: %v", err)
+		}
+	}()
 
 	multiOut := io.MultiWriter(os.Stdout, rotator)
 
