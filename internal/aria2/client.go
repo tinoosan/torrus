@@ -18,6 +18,9 @@ func NewClientFromEnv() (*Client, error) {
 	ms := 3000
 	if v := os.Getenv("ARIA2_TIMEOUT_MS"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
+			if parsed <= 0 {
+				ms = 3000
+			}
 			ms = parsed
 		}
 	}
