@@ -24,11 +24,8 @@ services:
       timeout: 2s
       retries: 10
 
-  torrus:
-    # Build from your repo’s Dockerfile
-    build:
-      context: .
-      dockerfile: Dockerfile
+  torrus-api:
+    image: ${TORRUS_IMAGE:-torrus-api:dev}
     container_name: torrus-api
     restart: unless-stopped
     depends_on:
@@ -46,6 +43,8 @@ services:
       - ARIA2_RPC_URL=${ARIA2_RPC_URL:-http://aria2:6800/jsonrpc}
       - ARIA2_SECRET=${ARIA2_SECRET:-changeme}
       - ARIA2_TIMEOUT_MS=${ARIA2_TIMEOUT_MS:-5000}
+      # API auth
+      - TORRUS_API_TOKEN=${TORRUS_API_TOKEN:-changeme}
     ports:
       - "9090:9090"
     volumes:
