@@ -163,6 +163,12 @@ components:
           format: int32
           readOnly: true
           example: 2
+        gid:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Unique identifier for the download in the backend
+          example: "2089b05ecca3d829"
         source:
           type: string
           description: Download source link (e.g. magnet URI, HTTP URL)
