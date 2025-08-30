@@ -15,23 +15,28 @@ type Client struct {
 }
 
 func NewClientFromEnv() (*Client, error) {
-
-	ms, err3 := strconv.Atoi(os.Getenv("ARIA2_TIMEOUT_MS"))
-	if err3 != nil || ms <= 0 {
-		ms = 3000
+	ms := 3000
+	if v := os.Getenv("ARIA2_TIMEOUT_MS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			ms = parsed
+		}
 	}
+
 	secret := os.Getenv("ARIA2_SECRET")
 
-	rawURL := os.Getenv("ARIA_RPC_URL")
-
+	rawURL := os.Getenv("ARIA2_RPC_URL")
 	if rawURL == "" {
 		rawURL = "http://127.0.0.1:6800/jsonrpc"
 	}
 
 	baseURL, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, err
+		baseURL, err = url.Parse("http://127.0.0.1:6800/jsonrpc")
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	return &Client{
 		baseURL: baseURL,
 		secret:  secret,
