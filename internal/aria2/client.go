@@ -43,3 +43,7 @@ func NewClientFromEnv() (*Client, error) {
 		http:    &http.Client{Timeout: time.Duration(ms) * time.Millisecond},
 	}, nil
 }
+
+func (c *Client) BaseURL() *url.URL { return c.baseURL}
+func (c *Client) Secret() string { return c.secret}
+func (c *Client) HTTP() *http.Client { return c.http}
