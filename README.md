@@ -11,24 +11,75 @@ Torrus is a work-in-progress API for managing and monitoring downloads.
 - Retrieve download details
 
 ## Versioning Policy
-All API endpoints are explicitly versioned starting with **v1**.  
-Future breaking changes will be introduced under a new version (e.g., `/v2/...`).  
+All API endpoints are explicitly versioned starting with **v1**.
+Future breaking changes will be introduced under a new version (e.g., `/v2/...`).
 Unversioned endpoints are disabled by default to encourage consistent usage.
 
 - Current version: **v1**
 - Unversioned routes: return `404` (or may optionally redirect to `/v1/...`)
 - Futre health check endpoints (e.g., `/healthz`) will remain unversioned
 
+## API Overview
+
+Torrus exposes a JSON-over-HTTP interface for orchestrating downloads.
+
+- **Authentication** – Every request (except `/healthz`) must include an `Authorization: Bearer <token>` header. The token is supplied to the server via environment variable and unauthenticated calls return `401` or `403`.
+- **Content negotiation** – Requests must set `Content-Type: application/json`. Bodies larger than ~1 MiB or containing unknown fields are rejected with `400`.
+- **Logging** – Each call is logged with method, path, status code, duration, and bytes transferred to aid in debugging and monitoring.
+- **Pluggable downloader** – The API delegates download work to a backend component. A no-op backend is used by default, but alternate downloaders (e.g., Aria2) can be enabled through configuration.
+- **Port** – The service listens on port `9090` by default.
+
 ## Endpoints (v1)
 
 ### Downloads
-- `GET    /v1/downloads` → List downloads
-- `GET    /v1/downloads/{id}` → Retrieve a single download
-- `POST   /v1/downloads` → Create a new download
-- `PATCH  /v1/downloads/{id}` → Update download state
+
+**GET /v1/downloads**  
+Returns `200 OK` with a JSON array of [Download](#download-object) resources.
+
+**GET /v1/downloads/{id}**  
+Path parameters:
+- `id` — numeric identifier  
+Returns `200 OK` with a single [Download](#download-object). Responds with `404` if the ID is not found.
+
+**POST /v1/downloads**  
+Create a download.  
+Request body:
+```json
+{
+  "source": "magnet:?xt=urn:btih:...",
+  "targetPath": "/downloads/",
+  "desiredStatus": "Active" // optional, defaults to "Queued"
+}
+```
+Responds with `201 Created` and the created [Download](#download-object).
+
+**PATCH /v1/downloads/{id}**  
+Update the desired status of a download.  
+Path parameters:
+- `id` — numeric identifier  
+Request body:
+```json
+{ "desiredStatus": "Active|Paused|Cancelled" }
+```
+Responds with `200 OK` and the updated [Download](#download-object).
+
+#### Download Object
+Fields returned by the downloads API:
+
+| Field           | Type   | Description                                                                 |
+|-----------------|--------|-----------------------------------------------------------------------------|
+| `id`            | int    | Unique identifier (read-only)                                               |
+| `gid`           | string | Backend identifier, may be `null` (read-only)                               |
+| `source`        | string | Download source link (magnet URI, HTTP URL, etc.)                           |
+| `targetPath`    | string | Destination path for the download                                           |
+| `status`        | string | Current status. One of `Queued`, `Active`, `Paused`, `Complete`, `Cancelled`, `Failed` (read-only) |
+| `desiredStatus` | string | Desired status. Same enum as `status`                                       |
+| `createdAt`     | string | RFC3339 timestamp when the download was created (read-only)                 |
 
 ### Health
-- `GET    /healthz` → Service health check (unversioned)
+
+**GET /healthz**  
+Unversioned endpoint returning `200 OK` and the text `ok`.
 
 ## Example Requests
 
@@ -36,15 +87,19 @@ Unversioned endpoints are disabled by default to encourage consistent usage.
 # List downloads
 curl http://localhost:8080/v1/downloads
 
-# Get a download by ID
-curl http://localhost:8080/v1/downloads/123
-
 # Create a new download
 curl -X POST http://localhost:8080/v1/downloads \
   -H "Content-Type: application/json" \
-  -d '{"url": "magnet:?xt=urn:btih:..."}'
+  -d '{"source":"magnet:?xt=urn:btih:...","targetPath":"/downloads","desiredStatus":"Active"}'
 
-# Update download state
+# Get a download by ID
+curl http://localhost:8080/v1/downloads/123
+
+# Update download desired status
 curl -X PATCH http://localhost:8080/v1/downloads/123 \
   -H "Content-Type: application/json" \
-  -d '{"status": "paused"}'
+  -d '{"desiredStatus":"Paused"}'
+
+# Health check
+curl http://localhost:8080/healthz
+```

@@ -10,6 +10,7 @@ import (
 
 	"github.com/tinoosan/torrus/internal/aria2"
 	"github.com/tinoosan/torrus/internal/data"
+	"github.com/tinoosan/torrus/internal/downloader"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -25,7 +26,9 @@ func newTestAdapter(t *testing.T, secret string, rt http.RoundTripper) *Adapter 
 		t.Fatalf("new client: %v", err)
 	}
 	c.HTTP().Transport = rt
-	return NewAdapter(c)
+	events := make(chan downloader.Event, 1)
+	rep := downloader.NewChanReporter(events)
+	return NewAdapter(c, rep)
 }
 
 func TestAdapterStart(t *testing.T) {
