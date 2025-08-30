@@ -96,11 +96,11 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 	var derr error
 	switch status {
 	case data.StatusActive:
-		derr = ds.dlr.Start(ctx, id)
+		derr = ds.dlr.Start(context.Background(), id)
 	case data.StatusPaused:
-		derr = ds.dlr.Pause(ctx, id)
+		derr = ds.dlr.Pause(context.Background(), id)
 	case data.StatusCancelled:
-		derr = ds.dlr.Cancel(ctx, id)
+		derr = ds.dlr.Cancel(context.Background(), id)
 	}
 
 	if derr != nil {
