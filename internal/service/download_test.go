@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/tinoosan/torrus/internal/data"
@@ -17,16 +18,20 @@ type mockDownloadRepo struct {
 	addFn    func(ctx context.Context, d *data.Download) (*data.Download, error)
 	updateFn func(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
 	setFn    func(ctx context.Context, id int, status data.DownloadStatus) error
+	setGIDFn    func(ctx context.Context, id int, gid string) error
 
 	listCalled   bool
 	getCalled    bool
 	addCalled    bool
 	updateCalled bool
 	setCalled    bool
+	setGIDCalled bool
 
 	setArgs struct {
 		id     int
+		gid string
 		status data.DownloadStatus
+
 	}
 }
 
@@ -106,6 +111,17 @@ func (m *mockDownloadRepo) SetStatus(ctx context.Context, id int, status data.Do
 	}
 	return nil
 }
+
+func (m *mockDownloadRepo) SetGID(ctx context.Context, id int, gid string) error {
+	m.setCalled = true
+	m.setArgs.id = id
+	m.setArgs.gid = strconv.FormatInt(int64(id), 10)
+	if m.setGIDFn != nil {
+		return m.setGIDFn(ctx, id, gid)
+	}
+	return nil
+}
+
 
 func TestDownloadService_List(t *testing.T) {
 	ctx := context.Background()
