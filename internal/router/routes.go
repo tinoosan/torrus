@@ -30,11 +30,13 @@ func New(logger *slog.Logger) *mux.Router {
 
 	switch os.Getenv("TORRUS_CLIENT") {
 	case "aria2":
-	aria2Client, err := aria2.NewClientFromEnv()
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-	dlr = aria2dl.NewAdapter(aria2Client)
+		aria2Client, err := aria2.NewClientFromEnv()
+		if err != nil {
+			fmt.Println("Error:", err)
+			dlr = downloader.NewNoopDownloader()
+		} else {
+			dlr = aria2dl.NewAdapter(aria2Client)
+		}
 	default:
 		dlr = downloader.NewNoopDownloader()
 	}
