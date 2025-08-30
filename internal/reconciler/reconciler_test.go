@@ -54,3 +54,30 @@ func TestHandle(t *testing.T) {
 		t.Fatalf("gid not cleared on failed: %q", got.GID)
 	}
 }
+
+// TestHandleStartDoesNotOverrideStatus ensures that Start events do not
+// resurrect downloads that have been paused or cancelled by the user before
+// the downloader emitted the start signal.
+func TestHandleStartDoesNotOverrideStatus(t *testing.T) {
+	cases := []data.DownloadStatus{data.StatusCancelled, data.StatusPaused}
+	for _, st := range cases {
+		t.Run(string(st), func(t *testing.T) {
+			rpo := repo.NewInMemoryDownloadRepo()
+			dl := &data.Download{Source: "s", TargetPath: "t", Status: st, DesiredStatus: st}
+			if _, err := rpo.Add(context.Background(), dl); err != nil {
+				t.Fatalf("add: %v", err)
+			}
+			r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
+
+			r.handle(downloader.Event{ID: dl.ID, Type: downloader.EventStart})
+
+			got, err := rpo.Get(context.Background(), dl.ID)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if got.Status != st {
+				t.Fatalf("start event overrode status: got %v want %v", got.Status, st)
+			}
+		})
+	}
+}

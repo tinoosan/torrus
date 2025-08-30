@@ -12,7 +12,7 @@ import (
 
 // Reconciler consumes downloader events and updates repository state.
 type Reconciler struct {
-	repo   repo.DownloadWriter
+	repo   repo.DownloadRepo
 	events <-chan downloader.Event
 	log    *slog.Logger
 
@@ -20,7 +20,7 @@ type Reconciler struct {
 	wg   sync.WaitGroup
 }
 
-func New(log *slog.Logger, repo repo.DownloadWriter, events <-chan downloader.Event) *Reconciler {
+func New(log *slog.Logger, repo repo.DownloadRepo, events <-chan downloader.Event) *Reconciler {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -59,6 +59,15 @@ func (r *Reconciler) handle(e downloader.Event) {
 	var status data.DownloadStatus
 	switch e.Type {
 	case downloader.EventStart:
+		dl, err := r.repo.Get(context.Background(), e.ID)
+		if err != nil {
+			r.log.Error("get", "id", e.ID, "err", err)
+			return
+		}
+		if dl.DesiredStatus != data.StatusActive || dl.Status != data.StatusQueued {
+			r.log.Info("ignoring stale start event", "id", e.ID, "status", dl.Status, "desired", dl.DesiredStatus)
+			return
+		}
 		status = data.StatusActive
 	case downloader.EventPaused:
 		status = data.StatusPaused
