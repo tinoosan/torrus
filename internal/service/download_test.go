@@ -18,7 +18,7 @@ type mockDownloadRepo struct {
 	addFn    func(ctx context.Context, d *data.Download) (*data.Download, error)
 	updateFn func(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
 	setFn    func(ctx context.Context, id int, status data.DownloadStatus) error
-	setGIDFn func(ctx context.Context, id int, gid string) error
+	setGIDFn    func(ctx context.Context, id int, gid string) error
 
 	listCalled   bool
 	getCalled    bool
@@ -29,8 +29,9 @@ type mockDownloadRepo struct {
 
 	setArgs struct {
 		id     int
-		gid    string
+		gid string
 		status data.DownloadStatus
+
 	}
 }
 
@@ -38,31 +39,31 @@ var _ repo.DownloadRepo = (*mockDownloadRepo)(nil)
 
 type mockDownloader struct {
 	startCalled, pauseCalled, cancelCalled bool
-	startFn                                func(ctx context.Context, dl *data.Download) error
-	pauseFn                                func(ctx context.Context, dl *data.Download) error
-	cancelFn                               func(ctx context.Context, dl *data.Download) error
+	startFn                                func(ctx context.Context, id int) error
+	pauseFn                                func(ctx context.Context, id int) error
+	cancelFn                               func(ctx context.Context, id int) error
 }
 
-func (m *mockDownloader) Start(ctx context.Context, dl *data.Download) error {
+func (m *mockDownloader) Start(ctx context.Context, id int) error {
 	m.startCalled = true
 	if m.startFn != nil {
-		return m.startFn(ctx, dl)
+		return m.startFn(ctx, id)
 	}
 	return nil
 }
 
-func (m *mockDownloader) Pause(ctx context.Context, dl *data.Download) error {
+func (m *mockDownloader) Pause(ctx context.Context, id int) error {
 	m.pauseCalled = true
 	if m.pauseFn != nil {
-		return m.pauseFn(ctx, dl)
+		return m.pauseFn(ctx, id)
 	}
 	return nil
 }
 
-func (m *mockDownloader) Cancel(ctx context.Context, dl *data.Download) error {
+func (m *mockDownloader) Cancel(ctx context.Context, id int) error {
 	m.cancelCalled = true
 	if m.cancelFn != nil {
-		return m.cancelFn(ctx, dl)
+		return m.cancelFn(ctx, id)
 	}
 	return nil
 }
@@ -120,6 +121,7 @@ func (m *mockDownloadRepo) SetGID(ctx context.Context, id int, gid string) error
 	}
 	return nil
 }
+
 
 func TestDownloadService_List(t *testing.T) {
 	ctx := context.Background()
@@ -374,7 +376,7 @@ func TestDownloadService_UpdateDesiredStatus(t *testing.T) {
 			},
 		}
 		mDL := &mockDownloader{
-			startFn: func(ctx context.Context, dl *data.Download) error { return errors.New("boom") },
+			startFn: func(ctx context.Context, id int) error { return errors.New("boom") },
 		}
 
 		svc := NewDownload(mRepo, mDL)
