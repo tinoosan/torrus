@@ -1,0 +1,228 @@
+openapi: 3.0.3
+info:
+  title: Torrus API
+  version: 0.1.0
+  description: |
+    API for managing and monitoring downloads.
+
+    - All API routes are served under `/v1` (except `/healthz`)
+    - Request bodies are **strict JSON** (unknown fields rejected)
+    - Request body max size ~1 MiB
+    - `Content-Type` must be `application/json`
+
+servers:
+  - url: http://localhost:9090
+    description: Local development
+
+security:
+  - ApiTokenAuth: []
+
+tags:
+  - name: Downloads
+    description: Manage downloads
+
+paths:
+  /v1/downloads:
+    get:
+      tags: [Downloads]
+      summary: List downloads
+      operationId: listDownloads
+      responses:
+        "200":
+          description: A list of downloads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Downloads"
+        "500":
+          $ref: "#/components/responses/PlainError"
+    post:
+      tags: [Downloads]
+      summary: Create a download
+      operationId: createDownload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadCreate"
+            examples:
+              createMagnet:
+                value:
+                  source: "magnet:?xt=urn:btih:abcdef1234567890..."
+                  targetPath: "/movies/"
+      responses:
+        "201":
+          description: Download created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Download"
+        "400":
+          $ref: "#/components/responses/PlainError"
+        "413":
+          $ref: "#/components/responses/PlainError"
+        "415":
+          $ref: "#/components/responses/PlainError"
+        "500":
+          $ref: "#/components/responses/PlainError"
+
+  /v1/downloads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Numeric download identifier
+        schema:
+          type: integer
+          format: int32
+    get:
+      tags: [Downloads]
+      summary: Get a download
+      operationId: getDownload
+      responses:
+        "200":
+          description: Download
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Download"
+        "404":
+          $ref: "#/components/responses/PlainError"
+        "500":
+          $ref: "#/components/responses/PlainError"
+    patch:
+      tags: [Downloads]
+      summary: Update desired status for a download
+      operationId: patchDownload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadPatch"
+            examples:
+              pause:
+                value: { desiredStatus: "Paused" }
+              cancel:
+                value: { desiredStatus: "Cancelled" }
+              resume:
+                value: { desiredStatus: "Active" }
+      responses:
+        "200":
+          description: Updated download
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Download"
+        "400":
+          $ref: "#/components/responses/PlainError"
+        "404":
+          $ref: "#/components/responses/PlainError"
+        "415":
+          $ref: "#/components/responses/PlainError"
+        "500":
+          $ref: "#/components/responses/PlainError"
+
+  /healthz:
+    get:
+      summary: Health check
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+components:
+  responses:
+    PlainError:
+      description: Error (plain text)
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "Not Found"
+
+  schemas:
+    Downloads:
+      type: array
+      items:
+        $ref: "#/components/schemas/Download"
+
+    Download:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+          example: 2
+        source:
+          type: string
+          description: Download source link (e.g. magnet URI, HTTP URL)
+          example: "magnet:?xt=urn:btih:1300da4907fcec1470bb3cd31563bb401cd33c14..."
+        targetPath:
+          type: string
+          description: Absolute or configured destination path
+          example: "/movies/"
+        status:
+          $ref: "#/components/schemas/DownloadStatus"
+          readOnly: true
+        desiredStatus:
+          $ref: "#/components/schemas/DownloadStatus"
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          example: "2025-08-22T12:34:56Z"
+      required:
+        - id
+        - source
+        - targetPath
+        - status
+        - createdAt
+
+    DownloadCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          description: Download source link (e.g. magnet URI, HTTP URL)
+          example: "magnet:?xt=urn:btih:a216611be5b8d8c6306748d132774aa514977ee8..."
+        targetPath:
+          type: string
+          description: Destination directory or path
+          example: "/tv/"
+      required:
+        - source
+        - targetPath
+
+    DownloadPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        desiredStatus:
+          type: string
+          description: Desired state of the download
+          enum: ["Active", "Paused", "Cancelled"]
+      required:
+        - desiredStatus
+
+    DownloadStatus:
+      type: string
+      description: Current/desired download status.
+      enum: ["Queued", "Active", "Paused", "Complete", "Cancelled", "Failed"]
+      example: "Queued"
+
+  securitySchemes:
+    ApiTokenAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API token
