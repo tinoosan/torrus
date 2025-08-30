@@ -133,7 +133,7 @@ func (m *mockDownloadRepo) ClearGID(ctx context.Context, id int) error {
 
 func TestDownloadService_List(t *testing.T) {
 	ctx := context.Background()
-	want := data.Downloads{{ID: 1}, {ID: 2}}
+	want := data.Downloads{&data.Download{ID: 1}, &data.Download{ID: 2}}
 	m := &mockDownloadRepo{
 		listFn: func(ctx context.Context) (data.Downloads, error) {
 			return want, nil

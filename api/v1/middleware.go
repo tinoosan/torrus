@@ -32,7 +32,7 @@ func MiddlewareDownloadValidation(next http.Handler) http.Handler {
 			return
 		}
 
-	    ctx := context.WithValue(r.Context(), ctxKeyDownload{}, dl)
+		ctx := context.WithValue(r.Context(), ctxKeyDownload{}, dl)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -98,11 +98,4 @@ func (dh *DownloadHandler) Log(next http.Handler) http.Handler {
 			"dur_ms", timeElapsed.Milliseconds(),
 			"bytes", rw.bytes)
 	})
-}
-
-func isMagnet(s string) bool {
-	if !strings.HasPrefix(s, "magnet:?") {
-		return false
-	}
-	return strings.Contains(s, "xt=urn:btih:")
 }

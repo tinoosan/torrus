@@ -53,8 +53,12 @@ func TestInMemoryDownloadRepo_List(t *testing.T) {
 	// modify returned slice
 	list1[0] = &data.Download{ID: 99}
 	list1 = append(list1, &data.Download{ID: 100})
+	_ = list1
 
-	list2, _ := repo.List(ctx)
+	list2, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
 	if len(list2) != 2 {
 		t.Fatalf("expected 2 downloads after modification, got %d", len(list2))
 	}
@@ -129,8 +133,12 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < n; i++ {
-			repo.List(ctx)
-			repo.Get(ctx, i)
+			if _, err := repo.List(ctx); err != nil {
+				t.Errorf("List error: %v", err)
+			}
+			if _, err := repo.Get(ctx, i); err != nil && !errors.Is(err, data.ErrNotFound) {
+				t.Errorf("Get error: %v", err)
+			}
 		}
 	}()
 
@@ -147,7 +155,10 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 
 	wg.Wait()
 
-	list, _ := repo.List(ctx)
+	list, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
 
 	if got := len(list); got != n {
 		t.Fatalf("expected %d downloads, got %d", n, got)
