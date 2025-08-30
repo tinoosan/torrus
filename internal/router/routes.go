@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	v1 "github.com/tinoosan/torrus/api/v1"
 	"github.com/tinoosan/torrus/internal/auth"
+	"github.com/tinoosan/torrus/internal/downloader"
 	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/service"
 )
@@ -20,7 +21,8 @@ func New(logger *slog.Logger) *mux.Router {
 	}).Methods("GET")
 
 	downloadRepo := repo.NewInMemoryDownloadRepo()
-	downloadSvc := service.NewDownload(downloadRepo)
+	downloader := downloader.NewNoopDownloader()
+	downloadSvc := service.NewDownload(downloadRepo, downloader)
 
 	downloadHandler := v1.NewDownloadHandler(logger, downloadSvc)
 

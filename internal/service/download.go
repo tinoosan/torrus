@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/tinoosan/torrus/internal/data"
+	"github.com/tinoosan/torrus/internal/downloader"
 	"github.com/tinoosan/torrus/internal/repo"
 )
 
@@ -26,11 +27,13 @@ var (
 
 type download struct {
 	repo repo.DownloadRepo
+	dlr  downloader.Downloader
 }
 
-func NewDownload (repo repo.DownloadRepo) Download {
+func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader) Download {
 	return &download{
 		repo: repo,
+		dlr:  dlr,
 	}
 }
 
@@ -53,19 +56,58 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	if d.CreatedAt.IsZero() {
 		d.CreatedAt = time.Now()
 	}
-	if d.DesiredStatus == "" {
-		d.DesiredStatus = data.StatusQueued
+
+	switch d.DesiredStatus {
+	case "":
+		d.DesiredStatus = data.StatusActive
+		d.Status = data.StatusActive
+	case data.StatusActive:
+		d.Status = data.StatusActive
+	case data.StatusPaused:
+		d.Status = data.StatusPaused
+	case data.StatusCancelled:
+		return nil, data.ErrBadStatus
+	default:
+		return nil, data.ErrBadStatus
 	}
 
-	if d.Status == "" {
-		d.Status = data.StatusQueued
+	saved, err := ds.repo.Add(ctx, d)
+	if err != nil {
+		return nil, err
 	}
-	return ds.repo.Add(ctx, d)
+
+	if saved.Status == data.StatusActive {
+
+		go func(id int) {
+			_ = ds.dlr.Start(context.Background(), id)
+		}(saved.ID)
+
+	}
+	return saved, nil
 }
 
 func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
 	if !AllowedStatuses[status] {
 		return nil, data.ErrBadStatus
 	}
-	return ds.repo.UpdateDesiredStatus(ctx, id, status)
+
+	d, err := ds.repo.UpdateDesiredStatus(ctx, id, status)
+	if err != nil {
+		return nil, err
+	}
+
+	go func(s data.DownloadStatus, id int) {
+		switch s {
+		case data.StatusActive:
+			ds.dlr.Start(context.Background(), id)
+			ds.repo.SetStatus(context.Background(), id, s)
+		case data.StatusPaused:
+			ds.dlr.Pause(context.Background(), id)
+			ds.repo.SetStatus(context.Background(), id, s)
+		case data.StatusCancelled:
+			ds.dlr.Cancel(context.Background(), id)
+			ds.repo.SetStatus(context.Background(), id, s)
+		}
+	}(status, id)
+	return d, nil
 }
