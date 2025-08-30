@@ -23,7 +23,7 @@ func TestHandle(t *testing.T) {
 
 	r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
 
-	r.handle(downloader.Event{ID: dl.ID, Type: downloader.EventProgress, Progress: &downloader.Progress{Completed: 10, Total: 100}})
+	r.handle(downloader.Event{ID: dl.ID, GID: "g", Type: downloader.EventProgress, Progress: &downloader.Progress{Completed: 10, Total: 100}})
 	got, _ := rpo.Get(context.Background(), dl.ID)
 	if got.Status != data.StatusActive {
 		t.Fatalf("progress mutated status: %v", got.Status)
@@ -82,26 +82,45 @@ func TestHandleStartDoesNotOverrideStatus(t *testing.T) {
 	}
 }
 
-// TestHandleIgnoresStaleTerminalEvent ensures that terminal events with a
-// mismatched GID do not mutate repository state.
-func TestHandleIgnoresStaleTerminalEvent(t *testing.T) {
-	rpo := repo.NewInMemoryDownloadRepo()
-	dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive, GID: "new"}
-	if _, err := rpo.Add(context.Background(), dl); err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
+// TestHandleIgnoresStaleTerminalEvents ensures that terminal events with
+// mismatched GIDs do not update repository state, while events that arrive
+// before a GID is persisted are still processed.
+func TestHandleIgnoresStaleTerminalEvents(t *testing.T) {
+	t.Run("mismatched gid", func(t *testing.T) {
+		rpo := repo.NewInMemoryDownloadRepo()
+		dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive, GID: "g"}
+		if _, err := rpo.Add(context.Background(), dl); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
 
-	r.handle(downloader.Event{ID: dl.ID, GID: "old", Type: downloader.EventFailed})
+		r.handle(downloader.Event{ID: dl.ID, GID: "other", Type: downloader.EventComplete})
 
-	got, err := rpo.Get(context.Background(), dl.ID)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Status != data.StatusActive {
-		t.Fatalf("status changed on stale event: %v", got.Status)
-	}
-	if got.GID != "new" {
-		t.Fatalf("gid changed on stale event: %q", got.GID)
-	}
+		got, _ := rpo.Get(context.Background(), dl.ID)
+		if got.Status != data.StatusActive {
+			t.Fatalf("status changed: %v", got.Status)
+		}
+		if got.GID != "g" {
+			t.Fatalf("gid changed: %q", got.GID)
+		}
+	})
+
+	t.Run("missing repo gid", func(t *testing.T) {
+		rpo := repo.NewInMemoryDownloadRepo()
+		dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive}
+		if _, err := rpo.Add(context.Background(), dl); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
+
+		r.handle(downloader.Event{ID: dl.ID, GID: "g", Type: downloader.EventFailed})
+
+		got, _ := rpo.Get(context.Background(), dl.ID)
+		if got.Status != data.StatusError {
+			t.Fatalf("status not updated: %v", got.Status)
+		}
+		if got.GID != "" {
+			t.Fatalf("gid not cleared: %q", got.GID)
+		}
+	})
 }

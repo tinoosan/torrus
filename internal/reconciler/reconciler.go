@@ -95,16 +95,8 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
-	if checkTerminal {
-		dl, err := r.repo.Get(context.Background(), e.ID)
-		if err != nil {
-			r.log.Error("get", "id", e.ID, "err", err)
-			return
-		}
-		if dl.GID != e.GID {
-			r.log.Info("ignoring stale terminal event", "id", e.ID, "eventGID", e.GID, "gid", dl.GID)
-			return
-		}
+	if checkTerminal && !r.checkTerminal(e) {
+		return
 	}
 
 	if err := r.repo.SetStatus(context.Background(), e.ID, status); err != nil {
@@ -118,4 +110,17 @@ func (r *Reconciler) handle(e downloader.Event) {
 		}
 	}
 	r.log.Info("reconciled event", "id", e.ID, "type", e.Type)
+}
+
+func (r *Reconciler) checkTerminal(e downloader.Event) bool {
+	dl, err := r.repo.Get(context.Background(), e.ID)
+	if err != nil {
+		r.log.Error("get", "id", e.ID, "err", err)
+		return false
+	}
+	if dl.GID != "" && dl.GID != e.GID {
+		r.log.Info("ignoring stale terminal event", "id", e.ID, "gid", dl.GID, "event_gid", e.GID)
+		return false
+	}
+	return true
 }
