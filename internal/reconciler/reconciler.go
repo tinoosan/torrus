@@ -56,7 +56,10 @@ func (r *Reconciler) Stop() {
 }
 
 func (r *Reconciler) handle(e downloader.Event) {
-	var status data.DownloadStatus
+	var (
+		status        data.DownloadStatus
+		checkTerminal bool
+	)
 	switch e.Type {
 	case downloader.EventStart:
 		dl, err := r.repo.Get(context.Background(), e.ID)
@@ -73,10 +76,13 @@ func (r *Reconciler) handle(e downloader.Event) {
 		status = data.StatusPaused
 	case downloader.EventCancelled:
 		status = data.StatusCancelled
+		checkTerminal = true
 	case downloader.EventComplete:
 		status = data.StatusComplete
+		checkTerminal = true
 	case downloader.EventFailed:
 		status = data.StatusError
+		checkTerminal = true
 	case downloader.EventProgress:
 		if e.Progress != nil {
 			r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total)
@@ -89,13 +95,24 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
+	if checkTerminal {
+		dl, err := r.repo.Get(context.Background(), e.ID)
+		if err != nil {
+			r.log.Error("get", "id", e.ID, "err", err)
+			return
+		}
+		if dl.GID != e.GID {
+			r.log.Info("ignoring stale terminal event", "id", e.ID, "eventGID", e.GID, "gid", dl.GID)
+			return
+		}
+	}
+
 	if err := r.repo.SetStatus(context.Background(), e.ID, status); err != nil {
 		r.log.Error("set status", "id", e.ID, "status", status, "err", err)
 		return
 	}
 
-	switch e.Type {
-	case downloader.EventCancelled, downloader.EventComplete, downloader.EventFailed:
+	if checkTerminal {
 		if err := r.repo.ClearGID(context.Background(), e.ID); err != nil {
 			r.log.Error("clear gid", "id", e.ID, "err", err)
 		}
