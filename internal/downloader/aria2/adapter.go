@@ -14,10 +14,13 @@ import (
 )
 
 type Adapter struct {
-	cl *aria2.Client
+	cl  *aria2.Client
+	rep downloader.Reporter
 }
 
-func NewAdapter(cl *aria2.Client) *Adapter { return &Adapter{cl: cl} }
+func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
+	return &Adapter{cl: cl, rep: rep}
+}
 
 var _ downloader.Downloader = (*Adapter)(nil)
 
@@ -111,6 +114,9 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	if err := json.Unmarshal(res, &gid); err != nil {
 		return "", fmt.Errorf("parse addUri result: %w", err)
 	}
+	if a.rep != nil {
+		a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Status: data.StatusActive})
+	}
 	return gid, nil
 }
 
@@ -118,6 +124,9 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 	params := append(a.tokenParam(), dl.GID)
 	_, err := a.call(ctx, "aria2.pause", params)
+	if err == nil && a.rep != nil {
+		a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Status: data.StatusPaused})
+	}
 	return err
 }
 
@@ -125,5 +134,8 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	params := append(a.tokenParam(), dl.GID)
 	_, err := a.call(ctx, "aria2.remove", params)
+	if err == nil && a.rep != nil {
+		a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Status: data.StatusCancelled})
+	}
 	return err
 }

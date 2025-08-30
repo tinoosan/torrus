@@ -16,7 +16,13 @@ import (
 
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
+	"github.com/tinoosan/torrus/internal/aria2"
+	"github.com/tinoosan/torrus/internal/downloader"
+	aria2dl "github.com/tinoosan/torrus/internal/downloader/aria2"
+	"github.com/tinoosan/torrus/internal/reconciler"
+	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/router"
+	"github.com/tinoosan/torrus/internal/service"
 )
 
 type LogOptions struct {
@@ -87,7 +93,30 @@ func main() {
 		logger = slog.New(slog.NewTextHandler(multiOut, nil))
 	}
 
-	r := router.New(logger)
+	downloadRepo := repo.NewInMemoryDownloadRepo()
+	events := make(chan downloader.Event, 16)
+	rep := downloader.NewChanReporter(events)
+
+	var dlr downloader.Downloader
+	switch os.Getenv("TORRUS_CLIENT") {
+	case "aria2":
+		aria2Client, err := aria2.NewClientFromEnv()
+		if err != nil {
+			fmt.Println("Error:", err)
+			dlr = downloader.NewNoopDownloader()
+		} else {
+			dlr = aria2dl.NewAdapter(aria2Client, rep)
+		}
+	default:
+		dlr = downloader.NewNoopDownloader()
+	}
+
+	downloadSvc := service.NewDownload(downloadRepo, dlr)
+
+	rec := reconciler.New(logger, downloadRepo, events)
+	rec.Run()
+
+	r := router.New(logger, downloadSvc)
 
 	server := &http.Server{
 		Addr:         ":9090",
@@ -122,5 +151,6 @@ func main() {
 	if err := server.Shutdown(timeoutContext); err != nil {
 		logger.Error("Graceful shutdown failed", "err", err)
 	}
+	rec.Stop()
 
 }
