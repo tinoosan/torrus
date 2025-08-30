@@ -11,7 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tinoosan/torrus/internal/downloader"
+	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/router"
+	"github.com/tinoosan/torrus/internal/service"
 )
 
 const testToken = "testtoken"
@@ -20,7 +23,10 @@ func setup(t *testing.T) http.Handler {
 	t.Helper()
 	t.Setenv("TORRUS_API_TOKEN", testToken)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return router.New(logger)
+	repo := repo.NewInMemoryDownloadRepo()
+	dlr := downloader.NewNoopDownloader()
+	svc := service.NewDownload(repo, dlr)
+	return router.New(logger, svc)
 }
 
 func authReq(r *http.Request) {
