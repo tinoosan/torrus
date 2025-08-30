@@ -56,7 +56,10 @@ func (r *Reconciler) Stop() {
 }
 
 func (r *Reconciler) handle(e downloader.Event) {
-	var status data.DownloadStatus
+	var (
+		status        data.DownloadStatus
+		checkTerminal bool
+	)
 	switch e.Type {
 	case downloader.EventStart:
 		dl, err := r.repo.Get(context.Background(), e.ID)
@@ -73,10 +76,13 @@ func (r *Reconciler) handle(e downloader.Event) {
 		status = data.StatusPaused
 	case downloader.EventCancelled:
 		status = data.StatusCancelled
+		checkTerminal = true
 	case downloader.EventComplete:
 		status = data.StatusComplete
+		checkTerminal = true
 	case downloader.EventFailed:
 		status = data.StatusError
+		checkTerminal = true
 	case downloader.EventProgress:
 		if e.Progress != nil {
 			r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total)
