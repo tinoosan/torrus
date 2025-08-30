@@ -58,9 +58,11 @@ func TestNewClientFromEnv(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// ensure clean environment and set using t.Setenv
-			os.Unsetenv("ARIA2_RPC_URL")
-			os.Unsetenv("ARIA2_SECRET")
-			os.Unsetenv("ARIA2_TIMEOUT_MS")
+			for _, k := range []string{"ARIA2_RPC_URL", "ARIA2_SECRET", "ARIA2_TIMEOUT_MS"} {
+				if err := os.Unsetenv(k); err != nil {
+					t.Fatalf("unset %s: %v", k, err)
+				}
+			}
 
 			t.Setenv("ARIA2_RPC_URL", tc.url)
 			t.Setenv("ARIA2_SECRET", tc.secret)

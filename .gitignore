@@ -1,13 +1,47 @@
-.git
-.gitignore
-**/*.swp
-**/*.swo
-**/*.log
-logs/
-bin/
-dist/
-coverage.out
+# Go build artifacts
+/bin/
+/build/
+/dist/
+/out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go coverage & test cache
+*.cover
+*.coverprofile
+*.test
+*.prof
+*.pprof
+*.log
+
+# IDE/editor files
 .vscode/
 .idea/
+*.swp
+*.swo
+*.iml
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Environment & secrets
 .env
+.env.*
+!.env.example
+
+# Docker
+# base docker-compose.yaml is tracked, overrides are local only
+docker-compose.override.yaml
+docker-compose.override.*.yaml
+
+# GitHub Actions / CI temp
+.github/workflows/*.tmp
+
 Downloads/

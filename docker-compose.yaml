@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  aria2:
+    image: p3terx/aria2-pro:latest
+    container_name: aria2
+    restart: unless-stopped
+    environment:
+      - RPC_SECRET=${ARIA2_SECRET:-changeme}
+      - RPC_PORT=6800
+      - LISTEN_PORT=51413
+      - DISK_CACHE=64M
+      - IPV6_MODE=false
+    ports:
+      - "6800:6800"     # JSON-RPC
+      - "51413:51413"   # BT/TCP
+      - "51413:51413/udp"
+    volumes:
+      - ./downloads:/downloads
+      - ./aria2-config:/config
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 6800"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  torrus:
+    # Build from your repo’s Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: torrus-api
+    restart: unless-stopped
+    depends_on:
+      aria2:
+        condition: service_healthy
+    environment:
+      # Logging
+      - LOG_FORMAT=${LOG_FORMAT:-text}                # text|json
+      - LOG_FILE_PATH=${LOG_FILE_PATH:-/var/log/torrus/torrus.log}
+      - LOG_MAX_SIZE=${LOG_MAX_SIZE:-5}              # MB
+      - LOG_MAX_BACKUPS=${LOG_MAX_BACKUPS:-3}
+      - LOG_MAX_AGE_DAYS=${LOG_MAX_AGE_DAYS:-7}
+
+      # aria2 client config
+      - ARIA2_RPC_URL=${ARIA2_RPC_URL:-http://aria2:6800/jsonrpc}
+      - ARIA2_SECRET=${ARIA2_SECRET:-changeme}
+      - ARIA2_TIMEOUT_MS=${ARIA2_TIMEOUT_MS:-5000}
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./logs:/var/log/torrus
+      - ./downloads:/downloads
+    # Distroless base image lacks shell utilities such as curl, so we
+    # can't run an in-container HTTP health probe. The integration
+    # workflow checks the API's health from the host instead.
