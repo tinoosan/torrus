@@ -24,11 +24,8 @@ services:
       timeout: 2s
       retries: 10
 
-  torrus:
-    # Build from your repo’s Dockerfile
-    build:
-      context: .
-      dockerfile: Dockerfile
+  torrus-api:
+    image: ${TORRUS_IMAGE:-torrus-api:dev}
     container_name: torrus-api
     restart: unless-stopped
     depends_on:

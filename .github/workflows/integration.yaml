@@ -30,7 +30,7 @@ jobs:
         run: |
           cat > .env <<EOF
           LOG_FORMAT=json
-          LOG_FILE_PATH=./logs/torrus.log
+          LOG_FILE_PATH=/var/log/torrus/torrus.log
           LOG_MAX_SIZE=5
           LOG_MAX_BACKUPS=2
           LOG_MAX_AGE_DAYS=7
@@ -46,9 +46,14 @@ jobs:
           # If your compose references an image name, map it:
           TORRUS_IMAGE: torrus-api:ci
 
+      - name: Show container status
+        run: |
+          docker compose ps
+          docker compose logs torrus-api
+
       - name: Wait for health
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -fsS http://localhost:9090/healthz >/dev/null; then
               echo "healthy"; exit 0
             fi
