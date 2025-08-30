@@ -57,6 +57,17 @@ func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, 
 	return dl.Clone(), nil
 }
 
+func (r *InMemoryDownloadRepo) SetStatus(ctx context.Context, id int, status data.DownloadStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	dl, err := r.findByID(id)
+	if err != nil {
+		return err
+	}
+	dl.Status = status
+	return nil
+}
+
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
 	for _, dl := range r.downloads {
 		if dl.ID == id {
