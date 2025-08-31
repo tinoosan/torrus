@@ -14,7 +14,6 @@ import (
 
     "github.com/tinoosan/torrus/internal/downloader"
     internaldata "github.com/tinoosan/torrus/internal/data"
-    "github.com/tinoosan/torrus/internal/downloadcfg"
     "github.com/tinoosan/torrus/internal/repo"
     "github.com/tinoosan/torrus/internal/router"
     "github.com/tinoosan/torrus/internal/service"
@@ -28,7 +27,7 @@ func setup(t *testing.T) http.Handler {
     logger := slog.New(slog.NewTextHandler(io.Discard, nil))
     repo := repo.NewInMemoryDownloadRepo()
     dlr := downloader.NewNoopDownloader()
-    svc := service.NewDownload(repo, dlr, downloadcfg.CollisionError)
+    svc := service.NewDownload(repo, dlr)
     return router.New(logger, svc)
 }
 
@@ -162,7 +161,7 @@ func TestGetDownloadIncludesFiles(t *testing.T) {
     logger := slog.New(slog.NewTextHandler(io.Discard, nil))
     rpo := repo.NewInMemoryDownloadRepo()
     dlr := downloader.NewNoopDownloader()
-    svc := service.NewDownload(rpo, dlr, downloadcfg.CollisionError)
+    svc := service.NewDownload(rpo, dlr)
     h := router.New(logger, svc)
 
     // Seed a download with files
@@ -247,11 +246,11 @@ func TestPatchDownload(t *testing.T) {
 
 type conflictDL struct{}
 
-func (c *conflictDL) Start(ctx context.Context, d *internaldata.Download, _ downloadcfg.StartOptions) (string, error) {
+func (c *conflictDL) Start(ctx context.Context, d *internaldata.Download) (string, error) {
     return "", internaldata.ErrConflict
 }
 func (c *conflictDL) Pause(ctx context.Context, d *internaldata.Download) error { return nil }
-func (c *conflictDL) Resume(ctx context.Context, d *internaldata.Download, _ downloadcfg.StartOptions) error {
+func (c *conflictDL) Resume(ctx context.Context, d *internaldata.Download) error {
     return internaldata.ErrConflict
 }
 func (c *conflictDL) Cancel(ctx context.Context, d *internaldata.Download) error { return nil }
@@ -261,7 +260,7 @@ func TestPatchConflictPolicyReturns409(t *testing.T) {
     logger := slog.New(slog.NewTextHandler(io.Discard, nil))
     rpo := repo.NewInMemoryDownloadRepo()
     dlr := &conflictDL{}
-    svc := service.NewDownload(rpo, dlr, downloadcfg.CollisionError)
+    svc := service.NewDownload(rpo, dlr)
     h := router.New(logger, svc)
 
     // Create download via API
