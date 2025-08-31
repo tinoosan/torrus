@@ -177,6 +177,11 @@ components:
           type: string
           description: Absolute or configured destination path
           example: "/movies/"
+        name:
+          type: string
+          description: Human-friendly display name provided by downloader
+          readOnly: true
+          example: "Some.Movie.2024.1080p.mkv"
         status:
           $ref: "#/components/schemas/DownloadStatus"
           readOnly: true

@@ -121,19 +121,20 @@ func TestDownloadsLifecycle(t *testing.T) {
 }
 
 func TestPostDownloadValidation(t *testing.T) {
-	h := setup(t)
+    h := setup(t)
 
-	tests := []struct {
-		name        string
-		contentType string
-		body        string
-		want        int
-	}{
-		{"wrong content-type", "text/plain", "{}", http.StatusUnsupportedMediaType},
-		{"unknown field", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp","extra":1}`, http.StatusBadRequest},
-		{"missing target", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef"}`, http.StatusBadRequest},
-		{"body too large", "application/json", `{"source":"magnet:?xt=urn:btih:` + strings.Repeat("a", 1<<20) + `","targetPath":"/tmp"}`, http.StatusBadRequest},
-	}
+    tests := []struct {
+        name        string
+        contentType string
+        body        string
+        want        int
+    }{
+        {"wrong content-type", "text/plain", "{}", http.StatusUnsupportedMediaType},
+        {"unknown field", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp","extra":1}`, http.StatusBadRequest},
+        {"missing target", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef"}`, http.StatusBadRequest},
+        {"body too large", "application/json", `{"source":"magnet:?xt=urn:btih:` + strings.Repeat("a", 1<<20) + `","targetPath":"/tmp"}`, http.StatusBadRequest},
+        {"name provided (read-only)", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp","name":"hack"}`, http.StatusBadRequest},
+    }
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

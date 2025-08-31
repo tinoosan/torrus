@@ -11,13 +11,15 @@ import (
 // Download represents a single file transfer managed by Torrus.
 // It tracks the source URI, destination path and current state.
 type Download struct {
-	ID            int            `json:"id"`
-	GID           string         `json:"gid"`
-	Source        string         `json:"source"`
-	TargetPath    string         `json:"targetPath"`
-	Status        DownloadStatus `json:"status"`
-	DesiredStatus DownloadStatus `json:"desiredStatus,omitempty"`
-	CreatedAt     time.Time      `json:"createdAt"`
+    ID            int            `json:"id"`
+    GID           string         `json:"gid"`
+    Source        string         `json:"source"`
+    TargetPath    string         `json:"targetPath"`
+    // Name is a read-only field populated by the downloader via events.
+    Name          string         `json:"name,omitempty"`
+    Status        DownloadStatus `json:"status"`
+    DesiredStatus DownloadStatus `json:"desiredStatus,omitempty"`
+    CreatedAt     time.Time      `json:"createdAt"`
 }
 
 // Possible DownloadStatus values.
