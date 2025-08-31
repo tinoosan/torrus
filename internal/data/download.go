@@ -22,12 +22,13 @@ type Download struct {
 
 // Possible DownloadStatus values.
 const (
-	StatusQueued    DownloadStatus = "Queued"
-	StatusActive    DownloadStatus = "Active"
-	StatusPaused    DownloadStatus = "Paused"
-	StatusComplete  DownloadStatus = "Complete"
-	StatusCancelled DownloadStatus = "Cancelled"
-	StatusError     DownloadStatus = "Failed"
+    StatusQueued    DownloadStatus = "Queued"
+    StatusActive    DownloadStatus = "Active"
+    StatusResume    DownloadStatus = "Resume"
+    StatusPaused    DownloadStatus = "Paused"
+    StatusComplete  DownloadStatus = "Complete"
+    StatusCancelled DownloadStatus = "Cancelled"
+    StatusError     DownloadStatus = "Failed"
 )
 
 // Downloads is a slice of Download pointers.
