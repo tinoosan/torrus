@@ -81,16 +81,25 @@ Idempotency details:
 - Torrus computes a stable fingerprint `sha256(normalize(source), normalize(targetPath))` where `normalize` trims whitespace and cleans the target path (via `filepath.Clean`).
 - On Unix, paths remain case-sensitive. A Windows-specific normalization (e.g., lowercasing) can be added later if needed.
 
-**PATCH /v1/downloads/{id}**  
-Update the desired status of a download.  
+**PATCH /v1/downloads/{id}**
+Update the desired status of a download.
 Path parameters:
-- `id` — numeric identifier  
+- `id` — numeric identifier
 Request body:
 ```json
 { "desiredStatus": "Active|Resume|Paused|Cancelled" }
 ```
 Responds with `200 OK` and the updated [Download](#download-object).
 May return `409 Conflict` when a conflicting file already exists at the target.
+
+**DELETE /v1/downloads/{id}**
+Delete a download. Optional JSON body:
+```json
+{ "deleteFiles": true }
+```
+- `deleteFiles=true` removes on-disk files and control artifacts before deleting the entry.
+- `deleteFiles=false` (default) only cancels and deletes the entry.
+Returns `204 No Content` on success. Responds with `404` if the ID is not found.
 
 #### Download Object
 Fields returned by the downloads API:
