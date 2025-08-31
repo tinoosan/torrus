@@ -20,7 +20,6 @@ import (
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
-    "github.com/tinoosan/torrus/internal/downloadcfg"
 )
 
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
@@ -150,7 +149,7 @@ func (a *Adapter) tokenParam() []interface{} {
 }
 
 // Start: aria2.addUri([token?, [uris], options])
-func (a *Adapter) Start(ctx context.Context, dl *data.Download, o downloadcfg.StartOptions) (string, error) {
+func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) {
 	params := make([]interface{}, 0, 3)
 	if tok := a.tokenParam(); tok != nil {
 		params = append(params, tok...)
@@ -160,10 +159,6 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download, o downloadcfg.St
 	if dl.TargetPath != "" {
 		opts["dir"] = dl.TargetPath
 	}
-    // Map generic collision policy to aria2 options
-    for k, v := range mapPolicyToAria2(o.Policy) {
-        opts[k] = v
-    }
 	params = append(params, opts)
 
     res, err := a.call(ctx, "aria2.addUri", params)
@@ -221,11 +216,7 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 }
 
 // Resume: aria2.unpause([token?, gid])
-func (a *Adapter) Resume(ctx context.Context, dl *data.Download, o downloadcfg.StartOptions) error {
-    // Apply collision policy via changeOption before unpause
-    if err := a.changeOption(ctx, dl.GID, mapPolicyToAria2(o.Policy)); err != nil {
-        return err
-    }
+func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
     params := append(a.tokenParam(), dl.GID)
     _, err := a.call(ctx, "aria2.unpause", params)
     if err != nil {
@@ -274,32 +265,7 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download, o downloadcfg.S
 }
 
 // changeOption: aria2.changeOption([token?, gid, options])
-func (a *Adapter) changeOption(ctx context.Context, gid string, opts map[string]string) error {
-    if len(opts) == 0 {
-        return nil
-    }
-    params := make([]interface{}, 0, 3)
-    if tok := a.tokenParam(); tok != nil {
-        params = append(params, tok...)
-    }
-    params = append(params, gid)
-    params = append(params, opts)
-    _, err := a.call(ctx, "aria2.changeOption", params)
-    return err
-}
-
-func mapPolicyToAria2(p downloadcfg.CollisionPolicy) map[string]string {
-    switch p {
-    case downloadcfg.CollisionOverwrite:
-        return map[string]string{"allow-overwrite": "true", "auto-file-renaming": "false"}
-    case downloadcfg.CollisionRename:
-        return map[string]string{"allow-overwrite": "false", "auto-file-renaming": "true"}
-    case downloadcfg.CollisionError:
-        fallthrough
-    default:
-        return map[string]string{"allow-overwrite": "false", "auto-file-renaming": "false"}
-    }
-}
+// changeOption removed: aria2 defaults are used and no generic policy applied
 
 // isAria2ConflictError attempts to detect a file-collision error from aria2.
 // aria2 typically returns RPC errors whose message contains phrases like
