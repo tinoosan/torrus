@@ -10,13 +10,15 @@ import (
 )
 
 type stubDownloader struct {
-	startFn  func(ctx context.Context, d *data.Download) (string, error)
-	pauseFn  func(ctx context.Context, d *data.Download) error
-	cancelFn func(ctx context.Context, d *data.Download) error
+    startFn  func(ctx context.Context, d *data.Download) (string, error)
+    pauseFn  func(ctx context.Context, d *data.Download) error
+    resumeFn func(ctx context.Context, d *data.Download) error
+    cancelFn func(ctx context.Context, d *data.Download) error
 
-	started   bool
-	paused    bool
-	cancelled bool
+    started   bool
+    paused    bool
+    resumed   bool
+    cancelled bool
 }
 
 func (s *stubDownloader) Start(ctx context.Context, d *data.Download) (string, error) {
@@ -27,11 +29,18 @@ func (s *stubDownloader) Start(ctx context.Context, d *data.Download) (string, e
 	return "gid", nil
 }
 func (s *stubDownloader) Pause(ctx context.Context, d *data.Download) error {
-	s.paused = true
-	if s.pauseFn != nil {
-		return s.pauseFn(ctx, d)
-	}
-	return nil
+    s.paused = true
+    if s.pauseFn != nil {
+        return s.pauseFn(ctx, d)
+    }
+    return nil
+}
+func (s *stubDownloader) Resume(ctx context.Context, d *data.Download) error {
+    s.resumed = true
+    if s.resumeFn != nil {
+        return s.resumeFn(ctx, d)
+    }
+    return nil
 }
 func (s *stubDownloader) Cancel(ctx context.Context, d *data.Download) error {
 	s.cancelled = true
@@ -62,7 +71,7 @@ func TestUpdateDesiredStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("to Paused pauses when gid", func(t *testing.T) {
+    t.Run("to Paused pauses when gid", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
 		d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g", Status: data.StatusActive})
 		dl := &stubDownloader{}
@@ -78,7 +87,25 @@ func TestUpdateDesiredStatus(t *testing.T) {
 		if got.Status != data.StatusPaused || got.GID != "g" {
 			t.Fatalf("unexpected result: %#v", got)
 		}
-	})
+    })
+
+    t.Run("to Resume resumes when gid and sets active", func(t *testing.T) {
+        r := repo.NewInMemoryDownloadRepo()
+        d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g", Status: data.StatusPaused})
+        dl := &stubDownloader{}
+        svc := NewDownload(r, dl)
+
+        got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusResume)
+        if err != nil {
+            t.Fatalf("UpdateDesiredStatus: %v", err)
+        }
+        if !dl.resumed {
+            t.Fatalf("expected Resume to be called")
+        }
+        if got.Status != data.StatusActive || got.GID != "g" {
+            t.Fatalf("unexpected result: %#v", got)
+        }
+    })
 
 	t.Run("to Cancelled cancels and clears gid", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()

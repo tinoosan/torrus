@@ -30,6 +30,9 @@ const (
 // Values are left generic so downloaders can supply whatever metrics
 // they have available (e.g. bytes downloaded, total size).
 type Progress struct {
-	Completed int64
-	Total     int64
+    Completed int64
+    Total     int64
+    // Speed is the current download speed in bytes/sec, if available.
+    // A value of 0 indicates it was not provided by the adapter.
+    Speed     int64
 }
