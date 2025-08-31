@@ -1,0 +1,15 @@
+name: docs-links
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**.md'
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lycheeverse/lychee-action@v1
+        with:
+          args: --no-progress --offline docs
