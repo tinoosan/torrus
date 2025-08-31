@@ -443,8 +443,13 @@ func (a *Adapter) fetchFiles(ctx context.Context, gid string) []data.DownloadFil
     }
     out := make([]data.DownloadFile, 0, len(tmp.Files))
     for _, f := range tmp.Files {
+        base := filepath.Base(f.Path)
+        // Filter out placeholder entries often represented as "."
+        if base == "." || base == "" {
+            continue
+        }
         df := data.DownloadFile{
-            Path:      filepath.Base(f.Path),
+            Path:      base,
             Length:    parse(f.Length),
             Completed: parse(f.CompletedLength),
         }
