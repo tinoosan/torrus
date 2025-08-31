@@ -143,22 +143,26 @@ func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	updated, err := dh.svc.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
-	if err != nil {
-		switch err {
-		case data.ErrNotFound:
-			markErr(w, err)
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		case data.ErrBadStatus:
-			markErr(w, err)
+    updated, err := dh.svc.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
+    if err != nil {
+        switch err {
+        case data.ErrNotFound:
+            markErr(w, err)
+            http.Error(w, "Not found", http.StatusNotFound)
+            return
+        case data.ErrBadStatus:
+            markErr(w, err)
             http.Error(w, "Invalid desiredStatus (allowed: Active|Resume|Paused|Cancelled)", http.StatusBadRequest)
             return
-		default:
-			markErr(w, err)
-			http.Error(w, "failed to update", http.StatusInternalServerError)
-			return
-		}
+        case data.ErrConflict:
+            markErr(w, err)
+            http.Error(w, "Conflict: target file exists", http.StatusConflict)
+            return
+        default:
+            markErr(w, err)
+            http.Error(w, "failed to update", http.StatusInternalServerError)
+            return
+        }
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = updated.ToJSON(w)

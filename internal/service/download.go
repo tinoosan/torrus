@@ -8,6 +8,7 @@ import (
 
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/downloader"
+    "github.com/tinoosan/torrus/internal/downloadcfg"
 	"github.com/tinoosan/torrus/internal/repo"
 )
 
@@ -31,16 +32,18 @@ var (
 
 // download implements the Download service.
 type download struct {
-	repo repo.DownloadRepo
-	dlr  downloader.Downloader
+    repo repo.DownloadRepo
+    dlr  downloader.Downloader
+    policy downloadcfg.CollisionPolicy
 }
 
 // NewDownload constructs a Download service backed by the given repository and downloader.
-func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader) Download {
-	return &download{
-		repo: repo,
-		dlr:  dlr,
-	}
+func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader, policy downloadcfg.CollisionPolicy) Download {
+    return &download{
+        repo: repo,
+        dlr:  dlr,
+        policy: policy,
+    }
 }
 
 // List returns all downloads from the repository.
@@ -85,31 +88,31 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 		return nil, err
 	}
 
-	if saved.Status == data.StatusActive {
-		go func(d *data.Download) {
-			gid, derr := ds.dlr.Start(context.Background(), d)
-			if derr != nil {
-				_, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
-					dl.Status = data.StatusError
-					return nil
-				})
-				return
-			}
-			_, err := ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
-				dl.GID = gid
-				return nil
-			})
-			if err != nil {
-				_, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
-					dl.Status = data.StatusError
-					return nil
-				})
-				return
-			}
-			d.GID = gid
-		}(saved)
-	}
-	return saved, nil
+    if saved.Status == data.StatusActive {
+        go func(d *data.Download) {
+            gid, derr := ds.dlr.Start(context.Background(), d, downloadcfg.StartOptions{Policy: ds.policy})
+            if derr != nil {
+                _, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return
+            }
+            _, err := ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
+                dl.GID = gid
+                return nil
+            })
+            if err != nil {
+                _, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return
+            }
+            d.GID = gid
+        }(saved)
+    }
+    return saved, nil
 }
 
 // UpdateDesiredStatus changes the desired state of a download and performs the
@@ -143,12 +146,15 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
         // If we *do* have a GID, keep it simple for MVP: just set Status=Active
         // and return (future: introduce Resume in downloader and call it here).
         if cur.GID == "" {
-            gid, derr := ds.dlr.Start(ctx, cur) // uses Source + TargetPath from cur
+            gid, derr := ds.dlr.Start(ctx, cur, downloadcfg.StartOptions{Policy: ds.policy}) // uses Source + TargetPath from cur
             if derr != nil {
                 _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
                     dl.Status = data.StatusError
                     return nil
                 })
+                if errors.Is(derr, data.ErrConflict) {
+                    return nil, data.ErrConflict
+                }
                 return nil, derr
             }
             _, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
@@ -174,21 +180,27 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
     case data.StatusResume:
         // If we have a GID, call Resume (unpause). If not, fall back to Start.
         if cur.GID != "" {
-            derr := ds.dlr.Resume(ctx, cur)
+            derr := ds.dlr.Resume(ctx, cur, downloadcfg.StartOptions{Policy: ds.policy})
             if derr != nil {
                 _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
                     dl.Status = data.StatusError
                     return nil
                 })
+                if errors.Is(derr, data.ErrConflict) {
+                    return nil, data.ErrConflict
+                }
                 return nil, derr
             }
         } else {
-            gid, derr := ds.dlr.Start(ctx, cur)
+            gid, derr := ds.dlr.Start(ctx, cur, downloadcfg.StartOptions{Policy: ds.policy})
             if derr != nil {
                 _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
                     dl.Status = data.StatusError
                     return nil
                 })
+                if errors.Is(derr, data.ErrConflict) {
+                    return nil, data.ErrConflict
+                }
                 return nil, derr
             }
             _, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
