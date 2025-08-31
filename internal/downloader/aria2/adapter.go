@@ -287,6 +287,7 @@ func isAria2GIDNotFoundError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "gid not found")
+
 }
 
 // Cancel: aria2.remove([token?, gid])
@@ -312,6 +313,36 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	delete(a.activeGIDs, dl.GID)
 	delete(a.lastProg, dl.GID)
 	a.mu.Unlock()
+	return nil
+}
+
+// Purge removes on-disk files and any aria2 result for the download. It first
+// attempts to cancel the transfer, then deletes all known payload and control
+// files. All steps are best-effort and idempotent.
+func (a *Adapter) Purge(ctx context.Context, dl *data.Download) error {
+	if dl.GID != "" {
+		// Best-effort cancel; ignore "not found" errors.
+		_ = a.Cancel(ctx, dl)
+
+		// Remove download result to clean aria2 session.
+		_, _ = a.call(ctx, "aria2.removeDownloadResult", append(a.tokenParam(), dl.GID))
+	}
+
+	// Gather file paths from aria2 when possible.
+	files := a.getFiles(ctx, dl.GID)
+	if len(files) == 0 && len(dl.Files) > 0 {
+		files = dl.Files
+	}
+
+	for _, f := range files {
+		p := f.Path
+		if !filepath.IsAbs(p) && dl.TargetPath != "" {
+			p = filepath.Join(dl.TargetPath, p)
+		}
+		_ = os.Remove(p)
+		_ = os.Remove(p + ".aria2")
+	}
+
 	return nil
 }
 

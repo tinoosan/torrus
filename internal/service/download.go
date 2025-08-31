@@ -21,6 +21,7 @@ type Download interface {
 	// row was created (true) or an existing one was returned (false).
 	Add(ctx context.Context, d *data.Download) (*data.Download, bool, error)
 	UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
+	Delete(ctx context.Context, id int, deleteFiles bool) error
 }
 
 var (
@@ -286,6 +287,28 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 
 	// Return the latest snapshot.
 	return ds.repo.Get(ctx, id)
+}
+
+// Delete removes a download. If deleteFiles is true, the downloader is asked to
+// purge any on-disk artifacts; otherwise the download is merely cancelled. The
+// repository entry is removed at the end if all operations succeed.
+func (ds *download) Delete(ctx context.Context, id int, deleteFiles bool) error {
+	dl, err := ds.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if deleteFiles {
+		if err := ds.dlr.Purge(ctx, dl); err != nil && !isDownloaderNotFound(err) {
+			return err
+		}
+	} else if dl.GID != "" {
+		if err := ds.dlr.Cancel(ctx, dl); err != nil && !isDownloaderNotFound(err) {
+			return err
+		}
+	}
+
+	return ds.repo.Delete(ctx, id)
 }
 
 func isDownloaderNotFound(err error) bool {

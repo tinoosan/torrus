@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/tinoosan/torrus/internal/aria2"
@@ -199,6 +201,59 @@ func TestAdapterResumeEmitsMeta(t *testing.T) {
 	}
 	if ev.Type != downloader.EventMeta || ev.Meta == nil || ev.Meta.Name == nil || *ev.Meta.Name != "Cool.Name.2024" {
 		t.Fatalf("unexpected event: %#v", ev)
+	}
+}
+
+func TestAdapterPurgeDeletesFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "a.mkv")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(file+".aria2", []byte("x"), 0o644); err != nil {
+		t.Fatalf("write control: %v", err)
+	}
+	dl := &data.Download{ID: 1, GID: "gid1", TargetPath: tmpDir}
+	call := 0
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		call++
+		b, _ := io.ReadAll(r.Body)
+		var req rpcReq
+		_ = json.Unmarshal(b, &req)
+		switch call {
+		case 1:
+			if req.Method != "aria2.remove" {
+				t.Fatalf("expected remove got %s", req.Method)
+			}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 2:
+			if req.Method != "aria2.removeDownloadResult" {
+				t.Fatalf("expected removeDownloadResult got %s", req.Method)
+			}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 3:
+			if req.Method != "aria2.getFiles" {
+				t.Fatalf("expected getFiles got %s", req.Method)
+			}
+			result := []map[string]any{{"path": file, "length": "1", "completedLength": "1"}}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		default:
+			t.Fatalf("unexpected call %d", call)
+			return nil, nil
+		}
+	})
+	a := newTestAdapter(t, "", rt)
+	if err := a.Purge(context.Background(), dl); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("file not removed")
+	}
+	if _, err := os.Stat(file + ".aria2"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("control file not removed")
 	}
 }
 
@@ -568,6 +623,7 @@ func TestAdapterResumeConflictMapsErrConflict(t *testing.T) {
 		t.Fatalf("expected ErrConflict, got %v", err)
 	}
 }
+
 
 func TestAdapterCancelNotFoundMapsErrNotFound(t *testing.T) {
 	dl := &data.Download{GID: "gid-missing"}
