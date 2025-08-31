@@ -1,17 +1,21 @@
 package aria2dl
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"log/slog"
-	"io"
-	"net/http"
-	"os"
-	"strconv"
-	"time"
-	"sync"
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "log/slog"
+    "io"
+    "net/http"
+    "os"
+    neturl "net/url"
+    "path"
+    "path/filepath"
+    "strconv"
+    "time"
+    "sync"
+    "strings"
 
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
 	"github.com/tinoosan/torrus/internal/data"
@@ -73,6 +77,19 @@ type statusResp struct {
     TotalLength     string `json:"totalLength"`
     CompletedLength string `json:"completedLength"`
     DownloadSpeed   string `json:"downloadSpeed"`
+}
+
+// nameStatus is a partial tellStatus response focused on metadata useful to
+// derive a human-friendly name.
+type nameStatus struct {
+    Bittorrent struct {
+        Info struct {
+            Name string `json:"name"`
+        } `json:"info"`
+    } `json:"bittorrent"`
+    Files []struct {
+        Path string `json:"path"`
+    } `json:"files"`
 }
 
 func (a *Adapter) call(ctx context.Context, method string, params []interface{}) (json.RawMessage, error) {
@@ -146,13 +163,17 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("parse addUri result: %w", err)
 	}
-	if a.rep != nil {
-		a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventStart})
-	}
+    if a.rep != nil {
+        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventStart})
+    }
     a.mu.Lock()
     a.gidToID[gid] = dl.ID
     a.activeGIDs[gid] = struct{}{}
     a.mu.Unlock()
+    // Try to resolve and emit a human-friendly name.
+    if name := a.fetchName(ctx, gid, dl.Source); name != "" {
+        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventMeta, Meta: &downloader.Meta{Name: &name}})
+    }
     return gid, nil
 }
 
@@ -170,7 +191,16 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
     params := append(a.tokenParam(), dl.GID)
     _, err := a.call(ctx, "aria2.unpause", params)
-    return err
+    if err != nil {
+        return err
+    }
+    // Try to resolve name on resume as well.
+    if dl.GID != "" {
+        if name := a.fetchName(ctx, dl.GID, dl.Source); name != "" {
+            a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventMeta, Meta: &downloader.Meta{Name: &name}})
+        }
+    }
+    return nil
 }
 
 // Cancel: aria2.remove([token?, gid])
@@ -311,6 +341,52 @@ func (a *Adapter) tellStatus(ctx context.Context, gid string) (*downloader.Progr
     }
     p := &downloader.Progress{Completed: parse(sr.CompletedLength), Total: parse(sr.TotalLength), Speed: parse(sr.DownloadSpeed)}
     return p, nil
+}
+
+// fetchName attempts to obtain a human-friendly display name for the download
+// identified by gid, using aria2 metadata first, then falling back to the
+// download source URL or magnet.
+func (a *Adapter) fetchName(ctx context.Context, gid string, source string) string {
+    params := make([]interface{}, 0, 3)
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
+    }
+    params = append(params, gid)
+    params = append(params, []string{"bittorrent", "files"})
+
+    res, err := a.call(ctx, "aria2.tellStatus", params)
+    if err == nil {
+        var ns nameStatus
+        if json.Unmarshal(res, &ns) == nil {
+            if ns.Bittorrent.Info.Name != "" {
+                return ns.Bittorrent.Info.Name
+            }
+            if len(ns.Files) > 0 && ns.Files[0].Path != "" {
+                return filepath.Base(ns.Files[0].Path)
+            }
+        }
+    }
+    // Fallbacks from source
+    if source == "" {
+        return ""
+    }
+    // Magnet dn param
+    if strings.HasPrefix(source, "magnet:") {
+        // magnet:?a=b&dn=name
+        if u, err := neturl.Parse(source); err == nil {
+            dn := u.Query().Get("dn")
+            if dn != "" {
+                return dn
+            }
+        }
+        return ""
+    }
+    if u, err := neturl.Parse(source); err == nil {
+        if u.Path != "" {
+            return path.Base(u.Path)
+        }
+    }
+    return ""
 }
 
 // pollLoop periodically polls aria2 for status of all active GIDs and emits

@@ -57,6 +57,18 @@ func TestHandle(t *testing.T) {
 	}
 }
 
+func TestHandleMetaUpdatesName(t *testing.T) {
+    rpo := repo.NewInMemoryDownloadRepo()
+    dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive}
+    _, err := rpo.Add(context.Background(), dl)
+    if err != nil { t.Fatalf("add: %v", err) }
+    r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
+    name := "Human Name"
+    r.handle(downloader.Event{ID: dl.ID, GID: "g", Type: downloader.EventMeta, Meta: &downloader.Meta{Name: &name}})
+    got, _ := rpo.Get(context.Background(), dl.ID)
+    if got.Name != name { t.Fatalf("name not updated: %q", got.Name) }
+}
+
 // TestHandleStartDoesNotOverrideStatus ensures that Start events do not
 // resurrect downloads that have been paused or cancelled by the user before
 // the downloader emitted the start signal.

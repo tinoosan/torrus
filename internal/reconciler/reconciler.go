@@ -91,6 +91,22 @@ func (r *Reconciler) handle(e downloader.Event) {
 	case downloader.EventFailed:
 		status = data.StatusError
 		checkTerminal = true
+    case downloader.EventMeta:
+        if e.Meta == nil {
+            return
+        }
+        if e.Meta.Name != nil {
+            _, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
+                dl.Name = *e.Meta.Name
+                return nil
+            })
+            if err != nil {
+                r.log.Error("update meta", "id", e.ID, "err", err)
+            } else {
+                r.log.Info("updated meta", "id", e.ID, "name", *e.Meta.Name)
+            }
+        }
+        return
     case downloader.EventProgress:
         if e.Progress != nil {
             r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total, "speed", e.Progress.Speed)
