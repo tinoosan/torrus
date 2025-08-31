@@ -122,6 +122,38 @@ func TestDownloadsLifecycle(t *testing.T) {
 	}
 }
 
+func TestPostIdempotent(t *testing.T) {
+    h := setup(t)
+
+    body := bytes.NewBufferString(`{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp/file"}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/downloads", body)
+    authReq(req)
+    req.Header.Set("Content-Type", "application/json")
+    rr := httptest.NewRecorder()
+    h.ServeHTTP(rr, req)
+    if rr.Code != http.StatusCreated {
+        t.Fatalf("expected 201, got %d", rr.Code)
+    }
+    var first map[string]any
+    _ = json.NewDecoder(rr.Body).Decode(&first)
+
+    // Same request again => 200 and same id
+    body2 := bytes.NewBufferString(`{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp/file"}`)
+    req2 := httptest.NewRequest(http.MethodPost, "/v1/downloads", body2)
+    authReq(req2)
+    req2.Header.Set("Content-Type", "application/json")
+    rr2 := httptest.NewRecorder()
+    h.ServeHTTP(rr2, req2)
+    if rr2.Code != http.StatusOK {
+        t.Fatalf("expected 200, got %d", rr2.Code)
+    }
+    var second map[string]any
+    _ = json.NewDecoder(rr2.Body).Decode(&second)
+    if int(first["id"].(float64)) != int(second["id"].(float64)) {
+        t.Fatalf("ids differ: %v vs %v", first["id"], second["id"])
+    }
+}
+
 func TestPostDownloadValidation(t *testing.T) {
     h := setup(t)
 
