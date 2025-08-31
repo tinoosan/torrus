@@ -166,10 +166,13 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download, o downloadcfg.St
     }
 	params = append(params, opts)
 
-	res, err := a.call(ctx, "aria2.addUri", params)
-	if err != nil {
-		return "", err
-	}
+    res, err := a.call(ctx, "aria2.addUri", params)
+    if err != nil {
+        if isAria2ConflictError(err) {
+            return "", data.ErrConflict
+        }
+        return "", err
+    }
 	// metadata gid (for magnets) or real gid
 	var gid string
 	if err := json.Unmarshal(res, &gid); err != nil {
@@ -225,9 +228,12 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download, o downloadcfg.S
     }
     params := append(a.tokenParam(), dl.GID)
     _, err := a.call(ctx, "aria2.unpause", params)
-	if err != nil {
-		return err
-	}
+    if err != nil {
+        if isAria2ConflictError(err) {
+            return data.ErrConflict
+        }
+        return err
+    }
 	// After unpause, check followedBy/bittorrent/files
 	ns, _ := a.tellNameStatus(ctx, dl.GID)
 	gid := dl.GID
@@ -293,6 +299,17 @@ func mapPolicyToAria2(p downloadcfg.CollisionPolicy) map[string]string {
     default:
         return map[string]string{"allow-overwrite": "false", "auto-file-renaming": "false"}
     }
+}
+
+// isAria2ConflictError attempts to detect a file-collision error from aria2.
+// aria2 typically returns RPC errors whose message contains phrases like
+// "File already exists" or "File exists" when writing the target fails.
+func isAria2ConflictError(err error) bool {
+    if err == nil {
+        return false
+    }
+    msg := strings.ToLower(err.Error())
+    return strings.Contains(msg, "file already exists") || strings.Contains(msg, "file exists")
 }
 
 // Cancel: aria2.remove([token?, gid])
