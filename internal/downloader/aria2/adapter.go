@@ -292,6 +292,9 @@ func isAria2GIDNotFoundError(err error) bool {
 
 // Cancel: aria2.remove([token?, gid])
 func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
+	if dl.GID == "" {
+		return downloader.ErrNotFound
+	}
 	params := append(a.tokenParam(), dl.GID)
 	_, err := a.call(ctx, "aria2.remove", params)
 	if err != nil {
