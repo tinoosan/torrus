@@ -217,7 +217,7 @@ components:
         desiredStatus:
           type: string
           description: Desired state of the download
-          enum: ["Active", "Paused", "Cancelled"]
+          enum: ["Active", "Resume", "Paused", "Cancelled"]
       required:
         - desiredStatus
 
