@@ -1,12 +1,13 @@
 package aria2dl
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"testing"
+    "bytes"
+    "context"
+    "encoding/json"
+    "errors"
+    "io"
+    "net/http"
+    "testing"
 
 	"github.com/tinoosan/torrus/internal/aria2"
 	"github.com/tinoosan/torrus/internal/data"
@@ -559,6 +560,43 @@ func TestAdapterPauseCancel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdapterStartConflictMapsErrConflict(t *testing.T) {
+    dl := &data.Download{ID: 71, Source: "http://example.com/file.bin", TargetPath: "/tmp"}
+    rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+        // addUri returns an RPC error that simulates a file-exists failure
+        rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Error: &rpcError{Code: 1, Message: "File already exists"}})
+        return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+    })
+    a := newTestAdapter(t, "", rt)
+    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{Policy: downloadcfg.CollisionError})
+    if gid != "" {
+        t.Fatalf("expected empty gid, got %q", gid)
+    }
+    if !errors.Is(err, data.ErrConflict) {
+        t.Fatalf("expected ErrConflict, got %v", err)
+    }
+}
+
+func TestAdapterResumeConflictMapsErrConflict(t *testing.T) {
+    dl := &data.Download{ID: 72, GID: "gid-72"}
+    call := 0
+    rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+        call++
+        // 1) changeOption ok, 2) unpause returns conflict
+        if call == 1 {
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        }
+        rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Error: &rpcError{Code: 1, Message: "File exists"}})
+        return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+    })
+    a := newTestAdapter(t, "", rt)
+    err := a.Resume(context.Background(), dl, downloadcfg.StartOptions{Policy: downloadcfg.CollisionError})
+    if !errors.Is(err, data.ErrConflict) {
+        t.Fatalf("expected ErrConflict, got %v", err)
+    }
 }
 
 
