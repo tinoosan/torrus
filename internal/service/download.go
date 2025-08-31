@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tinoosan/torrus/internal/data"
@@ -38,6 +39,9 @@ var (
 type download struct {
 	repo repo.ExtendedRepo
 	dlr  downloader.Downloader
+
+	startMu      sync.Mutex
+	startCancels map[int]context.CancelFunc
 }
 
 // NewDownload constructs a Download service backed by the given repository and downloader.
@@ -48,7 +52,7 @@ func NewDownload(r repo.DownloadRepo, dlr downloader.Downloader) Download {
 	if !ok {
 		ext = &extendedRepoAdapter{DownloadRepo: r}
 	}
-	return &download{repo: ext, dlr: dlr}
+	return &download{repo: ext, dlr: dlr, startCancels: make(map[int]context.CancelFunc)}
 }
 
 // extendedRepoAdapter bridges a DownloadRepo that lacks DownloadFinder
@@ -109,9 +113,21 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	// Only trigger a new start when this call actually created the download.
 	// Idempotent hits (created=false) must not re-start already active items.
 	if saved.Status == data.StatusActive && created {
-		go func(d *data.Download) {
-			gid, derr := ds.dlr.Start(context.Background(), d)
+		ctxStart, cancel := context.WithCancel(context.Background())
+		ds.startMu.Lock()
+		ds.startCancels[saved.ID] = cancel
+		ds.startMu.Unlock()
+		go func(d *data.Download, cctx context.Context) {
+			defer func() {
+				ds.startMu.Lock()
+				delete(ds.startCancels, d.ID)
+				ds.startMu.Unlock()
+			}()
+			gid, derr := ds.dlr.Start(cctx, d)
 			if derr != nil {
+				if errors.Is(derr, context.Canceled) {
+					return
+				}
 				_, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
@@ -130,7 +146,7 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 				return
 			}
 			d.GID = gid
-		}(saved)
+		}(saved, ctxStart)
 	}
 	return saved, created, nil
 }
@@ -298,11 +314,18 @@ func (ds *download) Delete(ctx context.Context, id int, deleteFiles bool) error 
 		return err
 	}
 
+	ds.startMu.Lock()
+	if cancel, ok := ds.startCancels[id]; ok {
+		cancel()
+		delete(ds.startCancels, id)
+	}
+	ds.startMu.Unlock()
+
 	if deleteFiles {
 		if err := ds.dlr.Purge(ctx, dl); err != nil && !isDownloaderNotFound(err) {
 			return err
 		}
-	} else if dl.GID != "" {
+	} else {
 		if err := ds.dlr.Cancel(ctx, dl); err != nil && !isDownloaderNotFound(err) {
 			return err
 		}
