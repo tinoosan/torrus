@@ -1,34 +1,35 @@
 package v1_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"context"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"strings"
-	"testing"
+    "bytes"
+    "encoding/json"
+    "context"
+    "io"
+    "log/slog"
+    "net/http"
+    "net/http/httptest"
+    "strconv"
+    "strings"
+    "testing"
 
-	"github.com/tinoosan/torrus/internal/downloader"
-	internaldata "github.com/tinoosan/torrus/internal/data"
-	"github.com/tinoosan/torrus/internal/repo"
-	"github.com/tinoosan/torrus/internal/router"
-	"github.com/tinoosan/torrus/internal/service"
+    "github.com/tinoosan/torrus/internal/downloader"
+    internaldata "github.com/tinoosan/torrus/internal/data"
+    "github.com/tinoosan/torrus/internal/downloadcfg"
+    "github.com/tinoosan/torrus/internal/repo"
+    "github.com/tinoosan/torrus/internal/router"
+    "github.com/tinoosan/torrus/internal/service"
 )
 
 const testToken = "testtoken"
 
 func setup(t *testing.T) http.Handler {
-	t.Helper()
-	t.Setenv("TORRUS_API_TOKEN", testToken)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	repo := repo.NewInMemoryDownloadRepo()
-	dlr := downloader.NewNoopDownloader()
-	svc := service.NewDownload(repo, dlr)
-	return router.New(logger, svc)
+    t.Helper()
+    t.Setenv("TORRUS_API_TOKEN", testToken)
+    logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+    repo := repo.NewInMemoryDownloadRepo()
+    dlr := downloader.NewNoopDownloader()
+    svc := service.NewDownload(repo, dlr, downloadcfg.CollisionError)
+    return router.New(logger, svc)
 }
 
 func authReq(r *http.Request) {
@@ -161,7 +162,7 @@ func TestGetDownloadIncludesFiles(t *testing.T) {
     logger := slog.New(slog.NewTextHandler(io.Discard, nil))
     rpo := repo.NewInMemoryDownloadRepo()
     dlr := downloader.NewNoopDownloader()
-    svc := service.NewDownload(rpo, dlr)
+    svc := service.NewDownload(rpo, dlr, downloadcfg.CollisionError)
     h := router.New(logger, svc)
 
     // Seed a download with files
@@ -242,4 +243,43 @@ func TestPatchDownload(t *testing.T) {
 			}
 		})
 	}
+}
+
+type conflictDL struct{}
+
+func (c *conflictDL) Start(ctx context.Context, d *internaldata.Download, _ downloadcfg.StartOptions) (string, error) {
+    return "", internaldata.ErrConflict
+}
+func (c *conflictDL) Pause(ctx context.Context, d *internaldata.Download) error { return nil }
+func (c *conflictDL) Resume(ctx context.Context, d *internaldata.Download, _ downloadcfg.StartOptions) error {
+    return internaldata.ErrConflict
+}
+func (c *conflictDL) Cancel(ctx context.Context, d *internaldata.Download) error { return nil }
+
+func TestPatchConflictPolicyReturns409(t *testing.T) {
+    t.Setenv("TORRUS_API_TOKEN", testToken)
+    logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+    rpo := repo.NewInMemoryDownloadRepo()
+    dlr := &conflictDL{}
+    svc := service.NewDownload(rpo, dlr, downloadcfg.CollisionError)
+    h := router.New(logger, svc)
+
+    // Create download via API
+    body := bytes.NewBufferString(`{"source":"http://example.com/file.bin","targetPath":"/tmp"}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/downloads", body)
+    authReq(req)
+    req.Header.Set("Content-Type", "application/json")
+    rr := httptest.NewRecorder()
+    h.ServeHTTP(rr, req)
+    if rr.Code != http.StatusCreated { t.Fatalf("create status=%d", rr.Code) }
+
+    // Now PATCH desiredStatus Active -> should hit Start and return 409
+    req = httptest.NewRequest(http.MethodPatch, "/v1/downloads/1", strings.NewReader(`{"desiredStatus":"Active"}`))
+    authReq(req)
+    req.Header.Set("Content-Type", "application/json")
+    rr = httptest.NewRecorder()
+    h.ServeHTTP(rr, req)
+    if rr.Code != http.StatusConflict {
+        t.Fatalf("expected 409, got %d", rr.Code)
+    }
 }

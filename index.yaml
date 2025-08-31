@@ -119,6 +119,13 @@ paths:
           $ref: "#/components/responses/PlainError"
         "404":
           $ref: "#/components/responses/PlainError"
+        "409":
+          description: Conflict due to existing target file when policy=error
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Conflict: target file exists"
         "415":
           $ref: "#/components/responses/PlainError"
         "500":
