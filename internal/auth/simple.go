@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// Middleware returns a handler that verifies requests include the
+// TORRUS_API_TOKEN value in the Authorization header.
+//
+// The token is compared using constant time comparison to help avoid timing
+// attacks. Requests to the health check endpoint are allowed through without
+// authentication.
 func Middleware(next http.Handler) http.Handler {
 	token := os.Getenv("TORRUS_API_TOKEN")
 

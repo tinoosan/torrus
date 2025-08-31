@@ -7,12 +7,15 @@ import (
 	"github.com/tinoosan/torrus/internal/data"
 )
 
+// InMemoryDownloadRepo stores downloads in memory. It is intended for tests and
+// development usage and is not safe for persistence across restarts.
 type InMemoryDownloadRepo struct {
 	mu        sync.RWMutex
 	downloads data.Downloads
 	nextID    int
 }
 
+// NewInMemoryDownloadRepo returns an initialized in-memory repository.
 func NewInMemoryDownloadRepo() *InMemoryDownloadRepo {
 	return &InMemoryDownloadRepo{
 		downloads: make(data.Downloads, 0),
@@ -20,12 +23,14 @@ func NewInMemoryDownloadRepo() *InMemoryDownloadRepo {
 	}
 }
 
-func (r *InMemoryDownloadRepo) List(ctx context.Context) (data.Downloads, error){
+// List returns all stored downloads.
+func (r *InMemoryDownloadRepo) List(ctx context.Context) (data.Downloads, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.downloads.Clone(), nil
 }
 
+// Get retrieves a download by its ID.
 func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -37,6 +42,7 @@ func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download,
 	return nil, data.ErrNotFound
 }
 
+// Add inserts a new download and assigns it a unique ID.
 func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -46,6 +52,7 @@ func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data
 	return d.Clone(), nil
 }
 
+// UpdateDesiredStatus sets the desired status for a download.
 func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -57,6 +64,7 @@ func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, 
 	return dl.Clone(), nil
 }
 
+// SetStatus updates the current status of a download.
 func (r *InMemoryDownloadRepo) SetStatus(ctx context.Context, id int, status data.DownloadStatus) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -68,6 +76,7 @@ func (r *InMemoryDownloadRepo) SetStatus(ctx context.Context, id int, status dat
 	return nil
 }
 
+// SetGID associates a downloader GID with the download.
 func (r *InMemoryDownloadRepo) SetGID(ctx context.Context, id int, gid string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -79,6 +88,7 @@ func (r *InMemoryDownloadRepo) SetGID(ctx context.Context, id int, gid string) e
 	return nil
 }
 
+// ClearGID removes any downloader GID from the download.
 func (r *InMemoryDownloadRepo) ClearGID(ctx context.Context, id int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -89,6 +99,7 @@ func (r *InMemoryDownloadRepo) ClearGID(ctx context.Context, id int) error {
 	dl.GID = ""
 	return nil
 }
+
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
 	for _, dl := range r.downloads {
 		if dl.ID == id {
@@ -96,5 +107,4 @@ func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
 		}
 	}
 	return nil, data.ErrNotFound
-
 }

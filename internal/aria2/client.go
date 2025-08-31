@@ -8,19 +8,24 @@ import (
 	"time"
 )
 
+// Client wraps access to an aria2 JSON-RPC server.
+// It holds connection details and the underlying HTTP client used for calls.
 type Client struct {
 	baseURL *url.URL
 	secret  string
 	http    *http.Client
 }
 
+// NewClientFromEnv constructs a Client using environment variables for
+// configuration. It falls back to sensible defaults when values are missing or
+// invalid.
 func NewClientFromEnv() (*Client, error) {
 	ms := 3000
 	if v := os.Getenv("ARIA2_TIMEOUT_MS"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
-				ms = parsed
-			}
+			ms = parsed
 		}
+	}
 
 	secret := os.Getenv("ARIA2_SECRET")
 
@@ -44,6 +49,11 @@ func NewClientFromEnv() (*Client, error) {
 	}, nil
 }
 
-func (c *Client) BaseURL() *url.URL { return c.baseURL}
-func (c *Client) Secret() string { return c.secret}
-func (c *Client) HTTP() *http.Client { return c.http}
+// BaseURL returns the aria2 RPC endpoint used by the client.
+func (c *Client) BaseURL() *url.URL { return c.baseURL }
+
+// Secret returns the authentication secret used for RPC calls.
+func (c *Client) Secret() string { return c.secret }
+
+// HTTP exposes the underlying HTTP client in use.
+func (c *Client) HTTP() *http.Client { return c.http }
