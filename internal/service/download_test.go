@@ -6,14 +6,13 @@ import (
     "testing"
 
     "github.com/tinoosan/torrus/internal/data"
-    "github.com/tinoosan/torrus/internal/downloadcfg"
     "github.com/tinoosan/torrus/internal/repo"
 )
 
 type stubDownloader struct {
-    startFn  func(ctx context.Context, d *data.Download, o downloadcfg.StartOptions) (string, error)
+    startFn  func(ctx context.Context, d *data.Download) (string, error)
     pauseFn  func(ctx context.Context, d *data.Download) error
-    resumeFn func(ctx context.Context, d *data.Download, o downloadcfg.StartOptions) error
+    resumeFn func(ctx context.Context, d *data.Download) error
     cancelFn func(ctx context.Context, d *data.Download) error
 
     started   bool
@@ -22,10 +21,10 @@ type stubDownloader struct {
     cancelled bool
 }
 
-func (s *stubDownloader) Start(ctx context.Context, d *data.Download, o downloadcfg.StartOptions) (string, error) {
+func (s *stubDownloader) Start(ctx context.Context, d *data.Download) (string, error) {
     s.started = true
     if s.startFn != nil {
-        return s.startFn(ctx, d, o)
+        return s.startFn(ctx, d)
     }
     return "gid", nil
 }
@@ -36,10 +35,10 @@ func (s *stubDownloader) Pause(ctx context.Context, d *data.Download) error {
     }
     return nil
 }
-func (s *stubDownloader) Resume(ctx context.Context, d *data.Download, o downloadcfg.StartOptions) error {
+func (s *stubDownloader) Resume(ctx context.Context, d *data.Download) error {
     s.resumed = true
     if s.resumeFn != nil {
-        return s.resumeFn(ctx, d, o)
+        return s.resumeFn(ctx, d)
     }
     return nil
 }
@@ -57,8 +56,8 @@ func TestUpdateDesiredStatus(t *testing.T) {
 	t.Run("to Active starts and sets gid", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
     d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download, _ downloadcfg.StartOptions) (string, error) { return "g", nil }}
-    svc := NewDownload(r, dl, downloadcfg.CollisionError)
+    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download) (string, error) { return "g", nil }}
+    svc := NewDownload(r, dl)
 
 		got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusActive)
 		if err != nil {
@@ -76,7 +75,7 @@ func TestUpdateDesiredStatus(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
 		d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g", Status: data.StatusActive})
     dl := &stubDownloader{}
-    svc := NewDownload(r, dl, downloadcfg.CollisionError)
+    svc := NewDownload(r, dl)
 
 		got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusPaused)
 		if err != nil {
@@ -94,7 +93,7 @@ func TestUpdateDesiredStatus(t *testing.T) {
         r := repo.NewInMemoryDownloadRepo()
         d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g", Status: data.StatusPaused})
         dl := &stubDownloader{}
-        svc := NewDownload(r, dl, downloadcfg.CollisionError)
+        svc := NewDownload(r, dl)
 
         got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusResume)
         if err != nil {
@@ -112,7 +111,7 @@ func TestUpdateDesiredStatus(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
 		d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g", Status: data.StatusActive})
     dl := &stubDownloader{}
-    svc := NewDownload(r, dl, downloadcfg.CollisionError)
+    svc := NewDownload(r, dl)
 
 		got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusCancelled)
 		if err != nil {
@@ -129,8 +128,8 @@ func TestUpdateDesiredStatus(t *testing.T) {
 	t.Run("downloader error sets failed", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
     d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download, _ downloadcfg.StartOptions) (string, error) { return "", errors.New("boom") }}
-    svc := NewDownload(r, dl, downloadcfg.CollisionError)
+    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download) (string, error) { return "", errors.New("boom") }}
+    svc := NewDownload(r, dl)
 
 		_, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusActive)
 		if err == nil {
@@ -144,7 +143,7 @@ func TestUpdateDesiredStatus(t *testing.T) {
 
 	t.Run("invalid status", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
-    svc := NewDownload(r, &stubDownloader{}, downloadcfg.CollisionError)
+    svc := NewDownload(r, &stubDownloader{})
 		_, err := svc.UpdateDesiredStatus(ctx, 1, data.StatusQueued)
 		if !errors.Is(err, data.ErrBadStatus) {
 			t.Fatalf("expected ErrBadStatus, got %v", err)
