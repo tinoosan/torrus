@@ -161,13 +161,13 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	}
 	params = append(params, opts)
 
-    res, err := a.call(ctx, "aria2.addUri", params)
-    if err != nil {
-        if isAria2ConflictError(err) {
-            return "", data.ErrConflict
-        }
-        return "", err
-    }
+	res, err := a.call(ctx, "aria2.addUri", params)
+	if err != nil {
+		if isAria2ConflictError(err) {
+			return "", data.ErrConflict
+		}
+		return "", err
+	}
 	// metadata gid (for magnets) or real gid
 	var gid string
 	if err := json.Unmarshal(res, &gid); err != nil {
@@ -217,14 +217,14 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 
 // Resume: aria2.unpause([token?, gid])
 func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
-    params := append(a.tokenParam(), dl.GID)
-    _, err := a.call(ctx, "aria2.unpause", params)
-    if err != nil {
-        if isAria2ConflictError(err) {
-            return data.ErrConflict
-        }
-        return err
-    }
+	params := append(a.tokenParam(), dl.GID)
+	_, err := a.call(ctx, "aria2.unpause", params)
+	if err != nil {
+		if isAria2ConflictError(err) {
+			return data.ErrConflict
+		}
+		return err
+	}
 	// After unpause, check followedBy/bittorrent/files
 	ns, _ := a.tellNameStatus(ctx, dl.GID)
 	gid := dl.GID
@@ -271,28 +271,48 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
 // aria2 typically returns RPC errors whose message contains phrases like
 // "File already exists" or "File exists" when writing the target fails.
 func isAria2ConflictError(err error) bool {
-    if err == nil {
-        return false
-    }
-    msg := strings.ToLower(err.Error())
-    return strings.Contains(msg, "file already exists") || strings.Contains(msg, "file exists")
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "file already exists") || strings.Contains(msg, "file exists")
+}
+
+// isAria2GIDNotFoundError detects when aria2 reports a missing GID.
+// Typical RPC errors include messages like "GID not found" when the transfer
+// has already completed or aria2 has restarted.
+func isAria2GIDNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "gid not found")
 }
 
 // Cancel: aria2.remove([token?, gid])
 func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	params := append(a.tokenParam(), dl.GID)
 	_, err := a.call(ctx, "aria2.remove", params)
-	if err == nil {
-		if a.rep != nil {
-			a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventCancelled})
+	if err != nil {
+		if isAria2GIDNotFoundError(err) {
+			a.mu.Lock()
+			delete(a.gidToID, dl.GID)
+			delete(a.activeGIDs, dl.GID)
+			delete(a.lastProg, dl.GID)
+			a.mu.Unlock()
+			return downloader.ErrNotFound
 		}
-		a.mu.Lock()
-		delete(a.gidToID, dl.GID)
-		delete(a.activeGIDs, dl.GID)
-		delete(a.lastProg, dl.GID)
-		a.mu.Unlock()
+		return err
 	}
-	return err
+	if a.rep != nil {
+		a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventCancelled})
+	}
+	a.mu.Lock()
+	delete(a.gidToID, dl.GID)
+	delete(a.activeGIDs, dl.GID)
+	delete(a.lastProg, dl.GID)
+	a.mu.Unlock()
+	return nil
 }
 
 // EmitComplete can be used by callers to signal that a download finished
