@@ -28,25 +28,27 @@ type UpdateFields struct {
 
 // DownloadWriter defines write operations for downloads.
 type DownloadWriter interface {
-    Add(ctx context.Context, download *data.Download) (*data.Download, error)
-    Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error)
-    // AddWithFingerprint performs an atomic check-then-insert based on the
-    // provided fingerprint. If an existing row with the fingerprint exists,
-    // it returns that row and created=false. Otherwise it inserts the provided
-    // download, assigns an ID, and returns created=true.
-    AddWithFingerprint(ctx context.Context, download *data.Download, fingerprint string) (*data.Download, bool, error)
+	Add(ctx context.Context, download *data.Download) (*data.Download, error)
+	Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error)
+	// AddWithFingerprint performs an atomic check-then-insert based on the
+	// provided fingerprint. If an existing row with the fingerprint exists,
+	// it returns that row and created=false. Otherwise it inserts the provided
+	// download, assigns an ID, and returns created=true.
+	AddWithFingerprint(ctx context.Context, download *data.Download, fingerprint string) (*data.Download, bool, error)
+	// Delete removes the download with the given ID.
+	Delete(ctx context.Context, id int) error
 }
 
 // DownloadFinder extends lookup helpers
 type DownloadFinder interface {
-    // GetByFingerprint returns a download matched by the provided fingerprint,
-    // or data.ErrNotFound if none exists.
-    GetByFingerprint(ctx context.Context, fingerprint string) (*data.Download, error)
+	// GetByFingerprint returns a download matched by the provided fingerprint,
+	// or data.ErrNotFound if none exists.
+	GetByFingerprint(ctx context.Context, fingerprint string) (*data.Download, error)
 }
 
 // ExtendedRepo combines reader, writer and finder interfaces.
 type ExtendedRepo interface {
-    DownloadReader
-    DownloadWriter
-    DownloadFinder
+	DownloadReader
+	DownloadWriter
+	DownloadFinder
 }

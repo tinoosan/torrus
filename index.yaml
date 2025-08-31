@@ -136,6 +136,35 @@ paths:
           $ref: "#/components/responses/PlainError"
         "500":
           $ref: "#/components/responses/PlainError"
+    delete:
+      tags: [Downloads]
+      summary: Delete a download
+      operationId: deleteDownload
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                deleteFiles:
+                  type: boolean
+                  description: |
+                    If true, remove on-disk files and control artifacts (e.g. .aria2) before deleting the entry.
+                    If false, only cancel/stop and delete the entry; files are left in place.
+                  default: false
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/PlainError"
+        "404":
+          $ref: "#/components/responses/PlainError"
+        "409":
+          $ref: "#/components/responses/PlainError"
+        "500":
+          $ref: "#/components/responses/PlainError"
 
   /healthz:
     get:

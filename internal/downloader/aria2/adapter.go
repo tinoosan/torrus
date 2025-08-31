@@ -161,13 +161,13 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	}
 	params = append(params, opts)
 
-    res, err := a.call(ctx, "aria2.addUri", params)
-    if err != nil {
-        if isAria2ConflictError(err) {
-            return "", data.ErrConflict
-        }
-        return "", err
-    }
+	res, err := a.call(ctx, "aria2.addUri", params)
+	if err != nil {
+		if isAria2ConflictError(err) {
+			return "", data.ErrConflict
+		}
+		return "", err
+	}
 	// metadata gid (for magnets) or real gid
 	var gid string
 	if err := json.Unmarshal(res, &gid); err != nil {
@@ -217,14 +217,14 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 
 // Resume: aria2.unpause([token?, gid])
 func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
-    params := append(a.tokenParam(), dl.GID)
-    _, err := a.call(ctx, "aria2.unpause", params)
-    if err != nil {
-        if isAria2ConflictError(err) {
-            return data.ErrConflict
-        }
-        return err
-    }
+	params := append(a.tokenParam(), dl.GID)
+	_, err := a.call(ctx, "aria2.unpause", params)
+	if err != nil {
+		if isAria2ConflictError(err) {
+			return data.ErrConflict
+		}
+		return err
+	}
 	// After unpause, check followedBy/bittorrent/files
 	ns, _ := a.tellNameStatus(ctx, dl.GID)
 	gid := dl.GID
@@ -271,11 +271,11 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
 // aria2 typically returns RPC errors whose message contains phrases like
 // "File already exists" or "File exists" when writing the target fails.
 func isAria2ConflictError(err error) bool {
-    if err == nil {
-        return false
-    }
-    msg := strings.ToLower(err.Error())
-    return strings.Contains(msg, "file already exists") || strings.Contains(msg, "file exists")
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "file already exists") || strings.Contains(msg, "file exists")
 }
 
 // Cancel: aria2.remove([token?, gid])
@@ -293,6 +293,36 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 		a.mu.Unlock()
 	}
 	return err
+}
+
+// Purge removes on-disk files and any aria2 result for the download. It first
+// attempts to cancel the transfer, then deletes all known payload and control
+// files. All steps are best-effort and idempotent.
+func (a *Adapter) Purge(ctx context.Context, dl *data.Download) error {
+	if dl.GID != "" {
+		// Best-effort cancel; ignore "not found" errors.
+		_ = a.Cancel(ctx, dl)
+
+		// Remove download result to clean aria2 session.
+		_, _ = a.call(ctx, "aria2.removeDownloadResult", append(a.tokenParam(), dl.GID))
+	}
+
+	// Gather file paths from aria2 when possible.
+	files := a.getFiles(ctx, dl.GID)
+	if len(files) == 0 && len(dl.Files) > 0 {
+		files = dl.Files
+	}
+
+	for _, f := range files {
+		p := f.Path
+		if !filepath.IsAbs(p) && dl.TargetPath != "" {
+			p = filepath.Join(dl.TargetPath, p)
+		}
+		_ = os.Remove(p)
+		_ = os.Remove(p + ".aria2")
+	}
+
+	return nil
 }
 
 // EmitComplete can be used by callers to signal that a download finished

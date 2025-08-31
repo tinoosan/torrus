@@ -15,6 +15,7 @@ type stubDownloader struct {
 	pauseFn  func(ctx context.Context, d *data.Download) error
 	resumeFn func(ctx context.Context, d *data.Download) error
 	cancelFn func(ctx context.Context, d *data.Download) error
+	purgeFn  func(ctx context.Context, d *data.Download) error
 
 	started    bool
 	startCount int
@@ -22,6 +23,7 @@ type stubDownloader struct {
 	paused     bool
 	resumed    bool
 	cancelled  bool
+	purged     bool
 }
 
 func (s *stubDownloader) Start(ctx context.Context, d *data.Download) (string, error) {
@@ -56,6 +58,14 @@ func (s *stubDownloader) Cancel(ctx context.Context, d *data.Download) error {
 	s.cancelled = true
 	if s.cancelFn != nil {
 		return s.cancelFn(ctx, d)
+	}
+	return nil
+}
+
+func (s *stubDownloader) Purge(ctx context.Context, d *data.Download) error {
+	s.purged = true
+	if s.purgeFn != nil {
+		return s.purgeFn(ctx, d)
 	}
 	return nil
 }
@@ -106,6 +116,16 @@ func (r *basicRepo) AddWithFingerprint(ctx context.Context, d *data.Download, fp
 	d.ID = r.nextID - 1
 	r.downloads = append(r.downloads, d.Clone())
 	return d.Clone(), true, nil
+}
+
+func (r *basicRepo) Delete(ctx context.Context, id int) error {
+	for i, dl := range r.downloads {
+		if dl.ID == id {
+			r.downloads = append(r.downloads[:i], r.downloads[i+1:]...)
+			return nil
+		}
+	}
+	return data.ErrNotFound
 }
 
 func TestNewDownload_AllowsNonExtendedRepo(t *testing.T) {
@@ -283,4 +303,45 @@ func TestServiceAdd_ActiveNotRestartedOnDuplicate(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		// ok
 	}
+}
+
+func TestDownloadService_Delete(t *testing.T) {
+	ctx := context.Background()
+	r := repo.NewInMemoryDownloadRepo()
+	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g"})
+
+	t.Run("cancel only", func(t *testing.T) {
+		dlr := &stubDownloader{}
+		svc := NewDownload(r, dlr)
+		if err := svc.Delete(ctx, d.ID, false); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if !dlr.cancelled {
+			t.Fatalf("expected Cancel to be called")
+		}
+		if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
+			t.Fatalf("expected repo deletion, got %v", err)
+		}
+	})
+
+	t.Run("purge", func(t *testing.T) {
+		// recreate download
+		d2, _ := r.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2", GID: "g2"})
+		dlr := &stubDownloader{}
+		svc := NewDownload(r, dlr)
+		if err := svc.Delete(ctx, d2.ID, true); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if !dlr.purged || dlr.cancelled {
+			t.Fatalf("expected Purge only; got purged=%v cancelled=%v", dlr.purged, dlr.cancelled)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		dlr := &stubDownloader{}
+		svc := NewDownload(r, dlr)
+		if err := svc.Delete(ctx, 999, false); !errors.Is(err, data.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
 }
