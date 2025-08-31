@@ -91,57 +91,57 @@ func (r *Reconciler) handle(e downloader.Event) {
 	case downloader.EventFailed:
 		status = data.StatusError
 		checkTerminal = true
-    case downloader.EventGIDUpdate:
-        if e.NewGID == "" {
-            return
-        }
-        _, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
-            dl.GID = e.NewGID
-            return nil
-        })
-        if err != nil {
-            r.log.Error("update gid", "id", e.ID, "err", err)
-        } else {
-            r.log.Info("updated gid", "id", e.ID, "gid", e.NewGID)
-        }
-        return
-    case downloader.EventMeta:
-        if e.Meta == nil {
-            return
-        }
-        if e.Meta.Name != nil {
-            _, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
-                dl.Name = *e.Meta.Name
-                return nil
-            })
-            if err != nil {
-                r.log.Error("update meta", "id", e.ID, "err", err)
-            } else {
-                r.log.Info("updated meta", "id", e.ID, "name", *e.Meta.Name)
-            }
-        }
-        if e.Meta.Files != nil {
-            // Persist files list (read-only field populated by downloader)
-            _, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
-                // Replace the slice to reflect latest snapshot from downloader
-                dl.Files = make([]data.DownloadFile, len(*e.Meta.Files))
-                copy(dl.Files, *e.Meta.Files)
-                return nil
-            })
-            if err != nil {
-                r.log.Error("update files", "id", e.ID, "err", err)
-            } else {
-                r.log.Info("updated files", "id", e.ID, "count", len(*e.Meta.Files))
-            }
-        }
-        return
-    case downloader.EventProgress:
-        if e.Progress != nil {
-            r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total, "speed", e.Progress.Speed)
-        } else {
-            r.log.Info("progress event", "id", e.ID)
-        }
-        return
+	case downloader.EventGIDUpdate:
+		if e.NewGID == "" {
+			return
+		}
+		_, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
+			dl.GID = e.NewGID
+			return nil
+		})
+		if err != nil {
+			r.log.Error("update gid", "id", e.ID, "err", err)
+		} else {
+			r.log.Info("updated gid", "id", e.ID, "gid", e.NewGID)
+		}
+		return
+	case downloader.EventMeta:
+		if e.Meta == nil {
+			return
+		}
+		if e.Meta.Name != nil {
+			_, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
+				dl.Name = *e.Meta.Name
+				return nil
+			})
+			if err != nil {
+				r.log.Error("update meta", "id", e.ID, "err", err)
+			} else {
+				r.log.Info("updated meta", "id", e.ID, "name", *e.Meta.Name)
+			}
+		}
+		if e.Meta.Files != nil {
+			// Persist files list (read-only field populated by downloader)
+			_, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
+				// Replace the slice to reflect latest snapshot from downloader
+				dl.Files = make([]data.DownloadFile, len(*e.Meta.Files))
+				copy(dl.Files, *e.Meta.Files)
+				return nil
+			})
+			if err != nil {
+				r.log.Error("update files", "id", e.ID, "err", err)
+			} else {
+				r.log.Info("updated files", "id", e.ID, "count", len(*e.Meta.Files))
+			}
+		}
+		return
+	case downloader.EventProgress:
+		if e.Progress != nil {
+			r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total, "speed", e.Progress.Speed)
+		} else {
+			r.log.Info("progress event", "id", e.ID)
+		}
+		return
 	default:
 		r.log.Warn("unknown event type", "id", e.ID, "type", e.Type)
 		return
