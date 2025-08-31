@@ -11,6 +11,7 @@ import (
 	"github.com/tinoosan/torrus/internal/repo"
 )
 
+// Download provides high-level operations for managing downloads.
 type Download interface {
 	List(ctx context.Context) (data.Downloads, error)
 	Get(ctx context.Context, id int) (*data.Download, error)
@@ -19,6 +20,7 @@ type Download interface {
 }
 
 var (
+	// AllowedStatuses enumerates statuses that callers may request.
 	AllowedStatuses = map[data.DownloadStatus]bool{
 		data.StatusActive:    true,
 		data.StatusPaused:    true,
@@ -26,11 +28,13 @@ var (
 	}
 )
 
+// download implements the Download service.
 type download struct {
 	repo repo.DownloadRepo
 	dlr  downloader.Downloader
 }
 
+// NewDownload constructs a Download service backed by the given repository and downloader.
 func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader) Download {
 	return &download{
 		repo: repo,
@@ -38,14 +42,17 @@ func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader) Download {
 	}
 }
 
+// List returns all downloads from the repository.
 func (ds *download) List(ctx context.Context) (data.Downloads, error) {
 	return ds.repo.List(ctx)
 }
 
+// Get retrieves a download by its ID.
 func (ds *download) Get(ctx context.Context, id int) (*data.Download, error) {
 	return ds.repo.Get(ctx, id)
 }
 
+// Add validates and persists a new download request.
 func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, error) {
 	if strings.TrimSpace(d.Source) == "" {
 		return nil, data.ErrInvalidSource
@@ -94,6 +101,8 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	return saved, nil
 }
 
+// UpdateDesiredStatus changes the desired state of a download and performs the
+// necessary side effects to reach it.
 func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
 	// Guard invalid desired statuses up front (service-level policy).
 	switch status {
