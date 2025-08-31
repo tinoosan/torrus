@@ -106,7 +106,9 @@ func main() {
 			fmt.Println("Error:", err)
 			dlr = downloader.NewNoopDownloader()
 		} else {
-			dlr = aria2dl.NewAdapter(aria2Client, rep)
+			a := aria2dl.NewAdapter(aria2Client, rep)
+			go a.Run(context.Background())
+			dlr = a
 		}
 	default:
 		dlr = downloader.NewNoopDownloader()
