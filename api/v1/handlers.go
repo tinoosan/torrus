@@ -1,10 +1,12 @@
 package v1
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/tinoosan/torrus/internal/data"
@@ -18,6 +20,10 @@ type DownloadHandler struct {
 
 type patchBody struct {
 	DesiredStatus string `json:"desiredStatus"`
+}
+
+type deleteBody struct {
+	DeleteFiles bool `json:"deleteFiles"`
 }
 
 type rwLogger struct {
@@ -110,24 +116,24 @@ func (dh *DownloadHandler) AddDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, ErrDownloadCtx.Error(), http.StatusInternalServerError)
 		return
 	}
-    saved, created, err := dh.svc.Add(r.Context(), dl)
-    switch {
-    case errors.Is(err, data.ErrInvalidSource), errors.Is(err, data.ErrTargetPath):
-        markErr(w, err)
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    case err != nil:
-    http.Error(w, "failed to create", http.StatusInternalServerError)
-    return
-    }
+	saved, created, err := dh.svc.Add(r.Context(), dl)
+	switch {
+	case errors.Is(err, data.ErrInvalidSource), errors.Is(err, data.ErrTargetPath):
+		markErr(w, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	case err != nil:
+		http.Error(w, "failed to create", http.StatusInternalServerError)
+		return
+	}
 
-    w.Header().Set("Content-Type", "application/json")
-    if created {
-        w.WriteHeader(http.StatusCreated)
-    } else {
-        w.WriteHeader(http.StatusOK)
-    }
-    _ = saved.ToJSON(w)
+	w.Header().Set("Content-Type", "application/json")
+	if created {
+		w.WriteHeader(http.StatusCreated)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = saved.ToJSON(w)
 }
 
 func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request) {
@@ -147,27 +153,73 @@ func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-    updated, err := dh.svc.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
-    if err != nil {
-        switch err {
-        case data.ErrNotFound:
-            markErr(w, err)
-            http.Error(w, "Not found", http.StatusNotFound)
-            return
-        case data.ErrBadStatus:
-            markErr(w, err)
-            http.Error(w, "Invalid desiredStatus (allowed: Active|Resume|Paused|Cancelled)", http.StatusBadRequest)
-            return
-        case data.ErrConflict:
-            markErr(w, err)
-            http.Error(w, "Conflict: target file exists", http.StatusConflict)
-            return
-        default:
-            markErr(w, err)
-            http.Error(w, "failed to update", http.StatusInternalServerError)
-            return
-        }
+	updated, err := dh.svc.UpdateDesiredStatus(r.Context(), id, data.DownloadStatus(body.DesiredStatus))
+	if err != nil {
+		switch err {
+		case data.ErrNotFound:
+			markErr(w, err)
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		case data.ErrBadStatus:
+			markErr(w, err)
+			http.Error(w, "Invalid desiredStatus (allowed: Active|Resume|Paused|Cancelled)", http.StatusBadRequest)
+			return
+		case data.ErrConflict:
+			markErr(w, err)
+			http.Error(w, "Conflict: target file exists", http.StatusConflict)
+			return
+		default:
+			markErr(w, err)
+			http.Error(w, "failed to update", http.StatusInternalServerError)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = updated.ToJSON(w)
+}
+
+func (dh *DownloadHandler) DeleteDownload(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		markErr(w, err)
+		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
+		return
+	}
+
+	var body deleteBody
+	if r.Body != nil && r.ContentLength != 0 {
+		if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
+			markErr(w, ErrContentType)
+			http.Error(w, ErrContentType.Error(), http.StatusBadRequest)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			markErr(w, err)
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := dh.svc.Delete(r.Context(), id, body.DeleteFiles); err != nil {
+		switch err {
+		case data.ErrNotFound:
+			markErr(w, err)
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		case data.ErrConflict:
+			markErr(w, err)
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		default:
+			markErr(w, err)
+			http.Error(w, "failed to delete", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
