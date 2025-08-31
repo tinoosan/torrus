@@ -47,12 +47,7 @@ Torrus exposes a JSON-over-HTTP interface for orchestrating downloads.
 
 ## Configuration
 
-- `TORRUS_CONFLICT_POLICY`: Controls how to handle existing target files when starting or resuming downloads. Values:
-  - `error` (default): Fail if a conflicting file exists. API returns HTTP 409 on PATCH when a start/resume hits a conflict.
-  - `overwrite`: Replace existing files where supported by the backend.
-  - `rename`: Create a unique filename (backend default behavior, e.g., auto-renaming in aria2).
-
-Other existing environment variables:
+Environment variables:
 - `TORRUS_CLIENT`: Selects downloader backend (`aria2` to enable aria2 adapter; defaults to noop).
 - `ARIA2_RPC_URL`, `ARIA2_SECRET`, `ARIA2_POLL_MS`: Configure the aria2 client and polling interval.
 
@@ -89,7 +84,7 @@ Request body:
 { "desiredStatus": "Active|Resume|Paused|Cancelled" }
 ```
 Responds with `200 OK` and the updated [Download](#download-object).
-May return `409 Conflict` when `TORRUS_CONFLICT_POLICY=error` and a conflicting file already exists at the target.
+May return `409 Conflict` when a conflicting file already exists at the target.
 
 #### Download Object
 Fields returned by the downloads API:

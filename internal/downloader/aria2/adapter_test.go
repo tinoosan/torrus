@@ -12,7 +12,6 @@ import (
 	"github.com/tinoosan/torrus/internal/aria2"
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/downloader"
-    "github.com/tinoosan/torrus/internal/downloadcfg"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -90,7 +89,7 @@ func TestAdapterStart(t *testing.T) {
 			}
 		})
 		a, events := newTestAdapterWithEvents(t, "secret", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{})
+    gid, err := a.Start(context.Background(), dl)
 		if err != nil {
 			t.Fatalf("Start error: %v", err)
 		}
@@ -134,7 +133,7 @@ func TestAdapterStart(t *testing.T) {
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
 		})
 		a := newTestAdapter(t, "", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{})
+    gid, err := a.Start(context.Background(), dl)
 		if err == nil {
 			t.Fatalf("expected error")
 		}
@@ -163,18 +162,12 @@ func TestAdapterResumeEmitsMeta(t *testing.T) {
 		}
     switch call {
     case 1:
-        if req.Method != "aria2.changeOption" {
-            t.Fatalf("method = %s", req.Method)
-        }
-        rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
-        return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-    case 2:
         if req.Method != "aria2.unpause" {
             t.Fatalf("method = %s", req.Method)
         }
         rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
         return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-    case 3:
+    case 2:
         if req.Method != "aria2.tellStatus" {
             t.Fatalf("expected tellStatus, got %s", req.Method)
         }
@@ -182,7 +175,7 @@ func TestAdapterResumeEmitsMeta(t *testing.T) {
         result := map[string]any{}
         rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
         return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-    case 4:
+    case 3:
         if req.Method != "aria2.getFiles" {
             t.Fatalf("expected getFiles, got %s", req.Method)
         }
@@ -196,7 +189,7 @@ func TestAdapterResumeEmitsMeta(t *testing.T) {
     }
 	})
 	a, events := newTestAdapterWithEvents(t, "secret", rt)
-    if err := a.Resume(context.Background(), dl, downloadcfg.StartOptions{}); err != nil {
+    if err := a.Resume(context.Background(), dl); err != nil {
         t.Fatalf("resume: %v", err)
     }
 	// Expect Meta with fallback name
@@ -257,7 +250,7 @@ func TestAdapterEmitsFilesMeta(t *testing.T) {
 		}
 	})
 	a, events := newTestAdapterWithEvents(t, "secret", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{})
+    gid, err := a.Start(context.Background(), dl)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -329,7 +322,7 @@ func TestAdapterFiltersDotFiles(t *testing.T) {
 		}
 	})
 	a, events := newTestAdapterWithEvents(t, "secret", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{})
+    gid, err := a.Start(context.Background(), dl)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -392,7 +385,7 @@ func TestAdapterStartMagnetFollowedBySwap(t *testing.T) {
 		}
 	})
 	a, events := newTestAdapterWithEvents(t, "secret", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{})
+    gid, err := a.Start(context.Background(), dl)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -419,20 +412,14 @@ func TestAdapterResumeFollowedBySwap(t *testing.T) {
 		}
     switch call {
     case 1:
-        if req.Method != "aria2.changeOption" {
+        if req.Method != "aria2.unpause" {
             t.Fatalf("call1 method=%s", req.Method)
         }
         rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
         return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
     case 2:
-        if req.Method != "aria2.unpause" {
-            t.Fatalf("call2 method=%s", req.Method)
-        }
-        rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
-        return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-    case 3:
         if req.Method != "aria2.tellStatus" {
-            t.Fatalf("call3 method=%s", req.Method)
+            t.Fatalf("call2 method=%s", req.Method)
         }
         result := map[string]any{
             "followedBy": []string{"realG"},
@@ -440,9 +427,9 @@ func TestAdapterResumeFollowedBySwap(t *testing.T) {
         }
         rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
         return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-    case 4:
+    case 3:
         if req.Method != "aria2.getFiles" {
-            t.Fatalf("call4 method=%s", req.Method)
+            t.Fatalf("call3 method=%s", req.Method)
         }
         result := []map[string]any{{"path": "/downloads/real/file.mkv", "length": "5", "completedLength": "1"}}
         rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
@@ -453,7 +440,7 @@ func TestAdapterResumeFollowedBySwap(t *testing.T) {
     }
 	})
 	a, events := newTestAdapterWithEvents(t, "secret", rt)
-    if err := a.Resume(context.Background(), dl, downloadcfg.StartOptions{}); err != nil {
+    if err := a.Resume(context.Background(), dl); err != nil {
         t.Fatalf("resume: %v", err)
     }
 	// Expect GIDUpdate then Meta
@@ -474,7 +461,7 @@ func TestAdapterPauseCancel(t *testing.T) {
 		call      func(context.Context, *Adapter, *data.Download) error
 	}{
 		{"Pause", "aria2.pause", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Pause(ctx, d) }},
-		{"Resume", "aria2.unpause", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Resume(ctx, d, downloadcfg.StartOptions{}) }},
+		{"Resume", "aria2.unpause", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Resume(ctx, d) }},
 		{"Cancel", "aria2.remove", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Cancel(ctx, d) }},
 	}
 
@@ -491,18 +478,9 @@ func TestAdapterPauseCancel(t *testing.T) {
 				}
 				if first {
 					first = false
-					if m.name == "Resume" {
-						if req.Method != "aria2.changeOption" {
-							t.Fatalf("method = %s", req.Method)
-						}
-						rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
-						return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-					}
 					if req.Method != m.rpcMethod {
 						t.Fatalf("method = %s", req.Method)
 					}
-				} else if m.name == "Resume" && req.Method == "aria2.unpause" {
-					// allow unpause as the second call
 				} else {
 					// For Resume, subsequent tellStatus and getFiles are expected; others should not hit here
 					if m.name != "Resume" || (req.Method != "aria2.tellStatus" && req.Method != "aria2.getFiles") {
@@ -513,17 +491,15 @@ func TestAdapterPauseCancel(t *testing.T) {
 					t.Fatalf("id = %s", req.ID)
 				}
 				// Return success for first call; for tellStatus provide empty result
-				if req.Method == m.rpcMethod || req.Method == "aria2.changeOption" {
+				if req.Method == m.rpcMethod {
 					if len(req.Params) != 2 {
 						t.Fatalf("params len = %d", len(req.Params))
 					}
 					if tok, _ := req.Params[0].(string); tok != "token:secret" {
 						t.Fatalf("token param = %v", req.Params[0])
 					}
-					if req.Method != "aria2.changeOption" {
-						if gid, _ := req.Params[1].(string); gid != dl.GID {
-							t.Fatalf("gid param = %v", req.Params[1])
-						}
+					if gid, _ := req.Params[1].(string); gid != dl.GID {
+						t.Fatalf("gid param = %v", req.Params[1])
 					}
 					resp := rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)}
 					rb, _ := json.Marshal(resp)
@@ -570,7 +546,7 @@ func TestAdapterStartConflictMapsErrConflict(t *testing.T) {
         return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
     })
     a := newTestAdapter(t, "", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{Policy: downloadcfg.CollisionError})
+    gid, err := a.Start(context.Background(), dl)
     if gid != "" {
         t.Fatalf("expected empty gid, got %q", gid)
     }
@@ -581,19 +557,13 @@ func TestAdapterStartConflictMapsErrConflict(t *testing.T) {
 
 func TestAdapterResumeConflictMapsErrConflict(t *testing.T) {
     dl := &data.Download{ID: 72, GID: "gid-72"}
-    call := 0
     rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-        call++
-        // 1) changeOption ok, 2) unpause returns conflict
-        if call == 1 {
-            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
-            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
-        }
+        // unpause returns conflict
         rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Error: &rpcError{Code: 1, Message: "File exists"}})
         return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
     })
     a := newTestAdapter(t, "", rt)
-    err := a.Resume(context.Background(), dl, downloadcfg.StartOptions{Policy: downloadcfg.CollisionError})
+    err := a.Resume(context.Background(), dl)
     if !errors.Is(err, data.ErrConflict) {
         t.Fatalf("expected ErrConflict, got %v", err)
     }
@@ -682,7 +652,7 @@ func TestAdapterMetadataCompleteTriggersFollowedBySwap(t *testing.T) {
 		}
 	})
 	a, events := newTestAdapterWithEvents(t, "secret", rt)
-    gid, err := a.Start(context.Background(), dl, downloadcfg.StartOptions{})
+    gid, err := a.Start(context.Background(), dl)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
