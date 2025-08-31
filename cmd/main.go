@@ -19,7 +19,6 @@ import (
 	"github.com/tinoosan/torrus/internal/aria2"
 	"github.com/tinoosan/torrus/internal/downloader"
 	aria2dl "github.com/tinoosan/torrus/internal/downloader/aria2"
-    "github.com/tinoosan/torrus/internal/downloadcfg"
 	"github.com/tinoosan/torrus/internal/reconciler"
 	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/router"
@@ -114,10 +113,7 @@ func main() {
 		dlr = downloader.NewNoopDownloader()
 	}
 
-    // Read global collision policy
-    pol := downloadcfg.ParseCollisionPolicy(strings.ToLower(os.Getenv("TORRUS_CONFLICT_POLICY")))
-
-    downloadSvc := service.NewDownload(downloadRepo, dlr, pol)
+    downloadSvc := service.NewDownload(downloadRepo, dlr)
 
 	rec := reconciler.New(logger, downloadRepo, events)
 	rec.Run()
