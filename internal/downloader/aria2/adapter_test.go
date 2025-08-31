@@ -154,6 +154,67 @@ func TestAdapterResumeEmitsMeta(t *testing.T) {
     }
 }
 
+func TestAdapterEmitsFilesMeta(t *testing.T) {
+    dl := &data.Download{ID: 42, Source: "http://example.com/pack", TargetPath: "/tmp"}
+    call := 0
+    rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+        call++
+        b, _ := io.ReadAll(r.Body)
+        var req rpcReq
+        if err := json.Unmarshal(b, &req); err != nil { t.Fatalf("decode: %v", err) }
+        switch call {
+        case 1:
+            if req.Method != "aria2.addUri" { t.Fatalf("call1 method=%s", req.Method) }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"gidxyz"`)})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 2:
+            if req.Method != "aria2.tellStatus" { t.Fatalf("call2 method=%s", req.Method) }
+            // fetchName: return files and bittorrent name
+            result := map[string]any{
+                "bittorrent": map[string]any{"info": map[string]any{"name": "Show.S01"}},
+                "files": []map[string]any{
+                    {"path": "/downloads/Show.S01/ep1.mkv", "length": "1000", "completedLength": "500"},
+                    {"path": "/downloads/Show.S01/ep2.mkv", "length": "2000", "completedLength": "0"},
+                },
+            }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 3:
+            if req.Method != "aria2.tellStatus" { t.Fatalf("call3 method=%s", req.Method) }
+            // fetchFiles: can return files again
+            result := map[string]any{
+                "files": []map[string]any{
+                    {"path": "/downloads/Show.S01/ep1.mkv", "length": "1000", "completedLength": "500"},
+                    {"path": "/downloads/Show.S01/ep2.mkv", "length": "2000", "completedLength": "0"},
+                },
+            }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        default:
+            t.Fatalf("unexpected extra call %d", call)
+            return nil, nil
+        }
+    })
+    a, events := newTestAdapterWithEvents(t, "secret", rt)
+    gid, err := a.Start(context.Background(), dl)
+    if err != nil { t.Fatalf("start: %v", err) }
+    if gid != "gidxyz" { t.Fatalf("gid: %s", gid) }
+    // Expect Start then Meta with Files
+    <-events // Start
+    ev := <-events
+    if ev.Type != downloader.EventMeta || ev.Meta == nil || ev.Meta.Files == nil {
+        t.Fatalf("expected meta with files, got %#v", ev)
+    }
+    files := *ev.Meta.Files
+    if len(files) != 2 { t.Fatalf("files len=%d", len(files)) }
+    if files[0].Path != "ep1.mkv" || files[0].Length != 1000 || files[0].Completed != 500 {
+        t.Fatalf("file0 mismatch: %#v", files[0])
+    }
+    if files[1].Path != "ep2.mkv" || files[1].Length != 2000 || files[1].Completed != 0 {
+        t.Fatalf("file1 mismatch: %#v", files[1])
+    }
+}
+
 func TestAdapterPauseCancel(t *testing.T) {
     methods := []struct {
         name      string

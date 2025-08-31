@@ -17,9 +17,9 @@ import (
     "sync"
     "strings"
 
-	"github.com/tinoosan/torrus/internal/aria2" // your Client
-	"github.com/tinoosan/torrus/internal/data"
-	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
+    	"github.com/tinoosan/torrus/internal/aria2" // your Client
+    	"github.com/tinoosan/torrus/internal/data"
+    	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
 )
 
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
@@ -90,6 +90,13 @@ type nameStatus struct {
     Files []struct {
         Path string `json:"path"`
     } `json:"files"`
+}
+
+// fileStatus is a partial tellStatus response for files[] entries.
+type fileStatus struct {
+    Path            string `json:"path"`
+    Length          string `json:"length"`
+    CompletedLength string `json:"completedLength"`
 }
 
 func (a *Adapter) call(ctx context.Context, method string, params []interface{}) (json.RawMessage, error) {
@@ -171,8 +178,16 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
     a.activeGIDs[gid] = struct{}{}
     a.mu.Unlock()
     // Try to resolve and emit a human-friendly name.
+    // Try to resolve and emit metadata (name, files) if available.
+    var meta downloader.Meta
     if name := a.fetchName(ctx, gid, dl.Source); name != "" {
-        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventMeta, Meta: &downloader.Meta{Name: &name}})
+        meta.Name = &name
+    }
+    if files := a.fetchFiles(ctx, gid); files != nil {
+        meta.Files = &files
+    }
+    if meta.Name != nil || meta.Files != nil {
+        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventMeta, Meta: &meta})
     }
     return gid, nil
 }
@@ -194,10 +209,17 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
     if err != nil {
         return err
     }
-    // Try to resolve name on resume as well.
+    // Try to resolve metadata on resume as well.
     if dl.GID != "" {
+        var meta downloader.Meta
         if name := a.fetchName(ctx, dl.GID, dl.Source); name != "" {
-            a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventMeta, Meta: &downloader.Meta{Name: &name}})
+            meta.Name = &name
+        }
+        if files := a.fetchFiles(ctx, dl.GID); files != nil {
+            meta.Files = &files
+        }
+        if meta.Name != nil || meta.Files != nil {
+            a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventMeta, Meta: &meta})
         }
     }
     return nil
@@ -387,6 +409,48 @@ func (a *Adapter) fetchName(ctx context.Context, gid string, source string) stri
         }
     }
     return ""
+}
+
+// fetchFiles queries aria2 for files[] and maps to []data.DownloadFile.
+func (a *Adapter) fetchFiles(ctx context.Context, gid string) []data.DownloadFile {
+    params := make([]interface{}, 0, 3)
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
+    }
+    params = append(params, gid)
+    params = append(params, []string{"files"})
+
+    res, err := a.call(ctx, "aria2.tellStatus", params)
+    if err != nil {
+        return nil
+    }
+    var tmp struct {
+        Files []fileStatus `json:"files"`
+    }
+    if json.Unmarshal(res, &tmp) != nil || len(tmp.Files) == 0 {
+        return nil
+    }
+    // Helper to parse decimal strings
+    parse := func(s string) int64 {
+        if s == "" {
+            return 0
+        }
+        v, err := strconv.ParseInt(s, 10, 64)
+        if err != nil {
+            return 0
+        }
+        return v
+    }
+    out := make([]data.DownloadFile, 0, len(tmp.Files))
+    for _, f := range tmp.Files {
+        df := data.DownloadFile{
+            Path:      filepath.Base(f.Path),
+            Length:    parse(f.Length),
+            Completed: parse(f.CompletedLength),
+        }
+        out = append(out, df)
+    }
+    return out
 }
 
 // pollLoop periodically polls aria2 for status of all active GIDs and emits

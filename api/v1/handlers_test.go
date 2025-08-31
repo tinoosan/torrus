@@ -3,6 +3,7 @@ package v1_test
 import (
 	"bytes"
 	"encoding/json"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/tinoosan/torrus/internal/downloader"
+	internaldata "github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/router"
 	"github.com/tinoosan/torrus/internal/service"
@@ -134,6 +136,7 @@ func TestPostDownloadValidation(t *testing.T) {
         {"missing target", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef"}`, http.StatusBadRequest},
         {"body too large", "application/json", `{"source":"magnet:?xt=urn:btih:` + strings.Repeat("a", 1<<20) + `","targetPath":"/tmp"}`, http.StatusBadRequest},
         {"name provided (read-only)", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp","name":"hack"}`, http.StatusBadRequest},
+        {"files provided (read-only)", "application/json", `{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp","files":[{"path":"a.mkv"}]}`, http.StatusBadRequest},
     }
 
 	for _, tt := range tests {
@@ -150,6 +153,52 @@ func TestPostDownloadValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetDownloadIncludesFiles(t *testing.T) {
+    // Build router manually to access repo
+    t.Setenv("TORRUS_API_TOKEN", testToken)
+    logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+    rpo := repo.NewInMemoryDownloadRepo()
+    dlr := downloader.NewNoopDownloader()
+    svc := service.NewDownload(rpo, dlr)
+    h := router.New(logger, svc)
+
+    // Seed a download with files
+    dl := &struct {
+        Source     string `json:"source"`
+        TargetPath string `json:"targetPath"`
+    }{"magnet:?xt=urn:btih:abcdef", "/tmp"}
+
+    // Create download via API
+    b := new(bytes.Buffer)
+    _ = json.NewEncoder(b).Encode(dl)
+    req := httptest.NewRequest(http.MethodPost, "/v1/downloads", b)
+    authReq(req)
+    req.Header.Set("Content-Type", "application/json")
+    rr := httptest.NewRecorder()
+    h.ServeHTTP(rr, req)
+    if rr.Code != http.StatusCreated { t.Fatalf("create status=%d", rr.Code) }
+    var created map[string]any
+    _ = json.NewDecoder(rr.Body).Decode(&created)
+    id := int(created["id"].(float64))
+
+    // Update repo to include files
+    _, _ = rpo.Update(context.Background(), id, func(d *internaldata.Download) error {
+        d.Files = []internaldata.DownloadFile{{Path: "ep1.mkv", Length: 1000}, {Path: "ep2.mkv", Completed: 100}}
+        return nil
+    })
+
+    // GET by id should include files
+    req = httptest.NewRequest(http.MethodGet, "/v1/downloads/"+strconv.Itoa(id), nil)
+    authReq(req)
+    rr = httptest.NewRecorder()
+    h.ServeHTTP(rr, req)
+    if rr.Code != http.StatusOK { t.Fatalf("get status=%d", rr.Code) }
+    var got map[string]any
+    _ = json.NewDecoder(rr.Body).Decode(&got)
+    fs, ok := got["files"].([]any)
+    if !ok || len(fs) != 2 { t.Fatalf("files missing or wrong len: %#v", got["files"]) }
 }
 
 func TestPatchDownload(t *testing.T) {

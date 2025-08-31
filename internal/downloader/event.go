@@ -1,5 +1,9 @@
 package downloader
 
+import (
+    "github.com/tinoosan/torrus/internal/data"
+)
+
 // Event represents a state change or progress update from a downloader.
 //
 // Type indicates what kind of event occurred. For terminal events
@@ -42,5 +46,8 @@ type Progress struct {
 // Meta carries optional metadata about a download that should be persisted
 // by the reconciler, such as the resolved resource name.
 type Meta struct {
-    Name *string
+    Name  *string
+    // Files is an optional list of files for this download, if available.
+    // Adapters may populate it when they can fetch details from the backend.
+    Files *[]data.DownloadFile
 }
