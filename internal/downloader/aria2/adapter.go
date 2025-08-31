@@ -82,6 +82,7 @@ type statusResp struct {
 // nameStatus is a partial tellStatus response focused on metadata useful to
 // derive a human-friendly name.
 type nameStatus struct {
+    FollowedBy []string `json:"followedBy"`
     Bittorrent struct {
         Info struct {
             Name string `json:"name"`
@@ -149,41 +150,50 @@ func (a *Adapter) tokenParam() []interface{} {
 
 // Start: aria2.addUri([token?, [uris], options])
 func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) {
-	params := make([]interface{}, 0, 3)
-	if tok := a.tokenParam(); tok != nil {
-		params = append(params, tok...)
-	}
-	params = append(params, []string{dl.Source})
-	opts := map[string]string{}
-	if dl.TargetPath != "" {
-		opts["dir"] = dl.TargetPath
-	}
-	params = append(params, opts)
-
-	res, err := a.call(ctx, "aria2.addUri", params)
-	if err != nil {
-		return "", err
-	}
-	// result is GID string
-	var gid string
-	err = json.Unmarshal(res, &gid)
-	if err != nil {
-		return "", fmt.Errorf("parse addUri result: %w", err)
-	}
-    if a.rep != nil {
-        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventStart})
+    params := make([]interface{}, 0, 3)
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
     }
+    params = append(params, []string{dl.Source})
+    opts := map[string]string{}
+    if dl.TargetPath != "" {
+        opts["dir"] = dl.TargetPath
+    }
+    params = append(params, opts)
+
+    res, err := a.call(ctx, "aria2.addUri", params)
+    if err != nil {
+        return "", err
+    }
+    // metadata gid (for magnets) or real gid
+    var gid string
+    if err := json.Unmarshal(res, &gid); err != nil {
+        return "", fmt.Errorf("parse addUri result: %w", err)
+    }
+
+    // Immediately ask for followedBy/bittorrent/files
+    ns, _ := a.tellNameStatus(ctx, gid)
+    // If followedBy exists, swap to real gid
+    if ns != nil && len(ns.FollowedBy) > 0 && ns.FollowedBy[0] != "" {
+        gid = ns.FollowedBy[0]
+    }
+
+    // Track the gid we decided on and emit Start
     a.mu.Lock()
     a.gidToID[gid] = dl.ID
     a.activeGIDs[gid] = struct{}{}
     a.mu.Unlock()
-    // Try to resolve and emit a human-friendly name.
-    // Try to resolve and emit metadata (name, files) if available.
+    if a.rep != nil {
+        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventStart})
+    }
+
+    // Resolve meta (name, files) using ns + getFiles
     var meta downloader.Meta
-    if name := a.fetchName(ctx, gid, dl.Source); name != "" {
+    name := a.deriveName(ns, dl.Source)
+    if name != "" {
         meta.Name = &name
     }
-    if files := a.fetchFiles(ctx, gid); files != nil {
+    if files := a.getFiles(ctx, gid); files != nil {
         meta.Files = &files
     }
     if meta.Name != nil || meta.Files != nil {
@@ -209,18 +219,41 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
     if err != nil {
         return err
     }
-    // Try to resolve metadata on resume as well.
-    if dl.GID != "" {
-        var meta downloader.Meta
-        if name := a.fetchName(ctx, dl.GID, dl.Source); name != "" {
-            meta.Name = &name
+    // After unpause, check followedBy/bittorrent/files
+    ns, _ := a.tellNameStatus(ctx, dl.GID)
+    gid := dl.GID
+    if ns != nil && len(ns.FollowedBy) > 0 && ns.FollowedBy[0] != "" {
+        real := ns.FollowedBy[0]
+        // swap adapter maps
+        a.mu.Lock()
+        delete(a.gidToID, gid)
+        delete(a.activeGIDs, gid)
+        id := dl.ID
+        a.gidToID[real] = id
+        a.activeGIDs[real] = struct{}{}
+        // propagate last progress under new gid if present
+        if lp, ok := a.lastProg[gid]; ok {
+            a.lastProg[real] = lp
+            delete(a.lastProg, gid)
         }
-        if files := a.fetchFiles(ctx, dl.GID); files != nil {
-            meta.Files = &files
+        a.mu.Unlock()
+        // notify repo to update gid
+        if a.rep != nil {
+            a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventGIDUpdate, NewGID: real})
         }
-        if meta.Name != nil || meta.Files != nil {
-            a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventMeta, Meta: &meta})
-        }
+        gid = real
+    }
+    // Emit Meta (name, files)
+    var meta downloader.Meta
+    name := a.deriveName(ns, dl.Source)
+    if name != "" {
+        meta.Name = &name
+    }
+    if files := a.getFiles(ctx, gid); files != nil {
+        meta.Files = &files
+    }
+    if meta.Name != nil || meta.Files != nil {
+        a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventMeta, Meta: &meta})
     }
     return nil
 }
@@ -369,25 +402,9 @@ func (a *Adapter) tellStatus(ctx context.Context, gid string) (*downloader.Progr
 // identified by gid, using aria2 metadata first, then falling back to the
 // download source URL or magnet.
 func (a *Adapter) fetchName(ctx context.Context, gid string, source string) string {
-    params := make([]interface{}, 0, 3)
-    if tok := a.tokenParam(); tok != nil {
-        params = append(params, tok...)
-    }
-    params = append(params, gid)
-    params = append(params, []string{"bittorrent", "files"})
-
-    res, err := a.call(ctx, "aria2.tellStatus", params)
-    if err == nil {
-        var ns nameStatus
-        if json.Unmarshal(res, &ns) == nil {
-            if ns.Bittorrent.Info.Name != "" {
-                return ns.Bittorrent.Info.Name
-            }
-            if len(ns.Files) > 0 && ns.Files[0].Path != "" {
-                return filepath.Base(ns.Files[0].Path)
-            }
-        }
-    }
+    // Prefer the generic name derivation based on tellStatus
+    ns, _ := a.tellNameStatus(ctx, gid)
+    if s := a.deriveName(ns, source); s != "" { return s }
     // Fallbacks from source
     if source == "" {
         return ""
@@ -411,23 +428,20 @@ func (a *Adapter) fetchName(ctx context.Context, gid string, source string) stri
     return ""
 }
 
-// fetchFiles queries aria2 for files[] and maps to []data.DownloadFile.
-func (a *Adapter) fetchFiles(ctx context.Context, gid string) []data.DownloadFile {
-    params := make([]interface{}, 0, 3)
+// getFiles queries aria2.getFiles and maps to []data.DownloadFile.
+func (a *Adapter) getFiles(ctx context.Context, gid string) []data.DownloadFile {
+    params := make([]interface{}, 0, 2)
     if tok := a.tokenParam(); tok != nil {
         params = append(params, tok...)
     }
     params = append(params, gid)
-    params = append(params, []string{"files"})
 
-    res, err := a.call(ctx, "aria2.tellStatus", params)
+    res, err := a.call(ctx, "aria2.getFiles", params)
     if err != nil {
         return nil
     }
-    var tmp struct {
-        Files []fileStatus `json:"files"`
-    }
-    if json.Unmarshal(res, &tmp) != nil || len(tmp.Files) == 0 {
+    var files []fileStatus
+    if json.Unmarshal(res, &files) != nil || len(files) == 0 {
         return nil
     }
     // Helper to parse decimal strings
@@ -441,21 +455,64 @@ func (a *Adapter) fetchFiles(ctx context.Context, gid string) []data.DownloadFil
         }
         return v
     }
-    out := make([]data.DownloadFile, 0, len(tmp.Files))
-    for _, f := range tmp.Files {
+    out := make([]data.DownloadFile, 0, len(files))
+    for _, f := range files {
         base := filepath.Base(f.Path)
-        // Filter out placeholder entries often represented as "."
         if base == "." || base == "" {
             continue
         }
-        df := data.DownloadFile{
-            Path:      base,
-            Length:    parse(f.Length),
-            Completed: parse(f.CompletedLength),
-        }
-        out = append(out, df)
+        out = append(out, data.DownloadFile{Path: base, Length: parse(f.Length), Completed: parse(f.CompletedLength)})
     }
     return out
+}
+
+// tellNameStatus fetches a minimal nameStatus for a gid.
+func (a *Adapter) tellNameStatus(ctx context.Context, gid string) (*nameStatus, error) {
+    params := make([]interface{}, 0, 3)
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
+    }
+    params = append(params, gid)
+    params = append(params, []string{"followedBy", "bittorrent", "files"})
+    res, err := a.call(ctx, "aria2.tellStatus", params)
+    if err != nil {
+        return nil, err
+    }
+    var ns nameStatus
+    if err := json.Unmarshal(res, &ns); err != nil {
+        return nil, err
+    }
+    return &ns, nil
+}
+
+// deriveName returns a best-effort name using tellStatus response and fallbacks.
+func (a *Adapter) deriveName(ns *nameStatus, source string) string {
+    if ns != nil {
+        if ns.Bittorrent.Info.Name != "" {
+            return ns.Bittorrent.Info.Name
+        }
+        if len(ns.Files) > 0 && ns.Files[0].Path != "" {
+            return filepath.Base(ns.Files[0].Path)
+        }
+    }
+    // fallbacks based on source
+    if source == "" {
+        return ""
+    }
+    if strings.HasPrefix(source, "magnet:") {
+        if u, err := neturl.Parse(source); err == nil {
+            if dn := u.Query().Get("dn"); dn != "" {
+                return dn
+            }
+        }
+        return ""
+    }
+    if u, err := neturl.Parse(source); err == nil {
+        if u.Path != "" {
+            return path.Base(u.Path)
+        }
+    }
+    return ""
 }
 
 // pollLoop periodically polls aria2 for status of all active GIDs and emits

@@ -17,6 +17,8 @@ type Event struct {
     Type     EventType
     Progress *Progress
     Meta     *Meta
+    // NewGID is used with EventGIDUpdate to signal a GID swap.
+    NewGID  string
 }
 
 // EventType defines the set of events that downloaders may emit.
@@ -30,6 +32,8 @@ const (
     EventFailed    EventType = "Failed"
     EventProgress  EventType = "Progress"
     EventMeta      EventType = "Meta"
+    // EventGIDUpdate notifies that a download's GID should be updated in the repo.
+    EventGIDUpdate EventType = "GIDUpdate"
 )
 
 // Progress provides optional details about an in-progress download.

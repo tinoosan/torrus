@@ -91,6 +91,20 @@ func (r *Reconciler) handle(e downloader.Event) {
 	case downloader.EventFailed:
 		status = data.StatusError
 		checkTerminal = true
+    case downloader.EventGIDUpdate:
+        if e.NewGID == "" {
+            return
+        }
+        _, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
+            dl.GID = e.NewGID
+            return nil
+        })
+        if err != nil {
+            r.log.Error("update gid", "id", e.ID, "err", err)
+        } else {
+            r.log.Info("updated gid", "id", e.ID, "gid", e.NewGID)
+        }
+        return
     case downloader.EventMeta:
         if e.Meta == nil {
             return

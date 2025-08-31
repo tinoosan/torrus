@@ -48,31 +48,38 @@ func newTestAdapterWithEvents(t *testing.T, secret string, rt http.RoundTripper)
 func TestAdapterStart(t *testing.T) {
     t.Run("success", func(t *testing.T) {
         dl := &data.Download{ID: 1, Source: "http://example.com/files/movie.mkv", TargetPath: "/tmp"}
-        first := true
+        call := 0
         rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+            call++
             b, _ := io.ReadAll(r.Body)
             var req rpcReq
             if err := json.Unmarshal(b, &req); err != nil {
                 t.Fatalf("decode request: %v", err)
             }
-            if first {
-                first = false
-                if req.Method != "aria2.addUri" {
-                    t.Fatalf("method = %s", req.Method)
-                }
+            switch call {
+            case 1:
+                if req.Method != "aria2.addUri" { t.Fatalf("method = %s", req.Method) }
                 resp := rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"gid123"`)}
                 rb, _ := json.Marshal(resp)
                 return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+            case 2:
+                if req.Method != "aria2.tellStatus" { t.Fatalf("expected tellStatus, got %s", req.Method) }
+                // Return files path to extract name
+                result := map[string]any{
+                    "files": []map[string]any{{"path": "/downloads/movie.mkv"}},
+                }
+                rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+                return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+            case 3:
+                if req.Method != "aria2.getFiles" { t.Fatalf("expected getFiles, got %s", req.Method) }
+                // Return one file entry
+                result := []map[string]any{{"path": "/downloads/movie.mkv", "length": "1000", "completedLength": "100"}}
+                rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+                return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+            default:
+                t.Fatalf("unexpected extra call %d", call)
+                return nil, nil
             }
-            if req.Method != "aria2.tellStatus" {
-                t.Fatalf("expected tellStatus, got %s", req.Method)
-            }
-            // Return files path to extract name
-            result := map[string]any{
-                "files": []map[string]any{{"path": "/downloads/movie.mkv"}},
-            }
-            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
-            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
         })
         a, events := newTestAdapterWithEvents(t, "secret", rt)
         gid, err := a.Start(context.Background(), dl)
@@ -127,22 +134,33 @@ func must[T any](v T, err error) T { if err != nil { panic(err) }; return v }
 
 func TestAdapterResumeEmitsMeta(t *testing.T) {
     dl := &data.Download{ID: 1, Source: "magnet:?xt=urn:btih:abc&dn=Cool.Name.2024", GID: "gid-9"}
-    first := true
+    call := 0
     rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+        call++
         b, _ := io.ReadAll(r.Body)
         var req rpcReq
         if err := json.Unmarshal(b, &req); err != nil { t.Fatalf("decode: %v", err) }
-        if first {
-            first = false
+        switch call {
+        case 1:
             if req.Method != "aria2.unpause" { t.Fatalf("method = %s", req.Method) }
             rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
             return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 2:
+            if req.Method != "aria2.tellStatus" { t.Fatalf("expected tellStatus, got %s", req.Method) }
+            // No metadata; adapter should fallback to magnet dn
+            result := map[string]any{}
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 3:
+            if req.Method != "aria2.getFiles" { t.Fatalf("expected getFiles, got %s", req.Method) }
+            // No files known yet
+            result := []map[string]any{}
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        default:
+            t.Fatalf("unexpected extra call %d", call)
+            return nil, nil
         }
-        if req.Method != "aria2.tellStatus" { t.Fatalf("expected tellStatus, got %s", req.Method) }
-        // No metadata; adapter should fallback to magnet dn
-        result := map[string]any{}
-        rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
-        return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
     })
     a, events := newTestAdapterWithEvents(t, "secret", rt)
     if err := a.Resume(context.Background(), dl); err != nil { t.Fatalf("resume: %v", err) }
@@ -180,13 +198,11 @@ func TestAdapterEmitsFilesMeta(t *testing.T) {
             rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
             return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
         case 3:
-            if req.Method != "aria2.tellStatus" { t.Fatalf("call3 method=%s", req.Method) }
-            // fetchFiles: can return files again
-            result := map[string]any{
-                "files": []map[string]any{
-                    {"path": "/downloads/Show.S01/ep1.mkv", "length": "1000", "completedLength": "500"},
-                    {"path": "/downloads/Show.S01/ep2.mkv", "length": "2000", "completedLength": "0"},
-                },
+            if req.Method != "aria2.getFiles" { t.Fatalf("call3 method=%s", req.Method) }
+            // getFiles: return files list
+            result := []map[string]any{
+                {"path": "/downloads/Show.S01/ep1.mkv", "length": "1000", "completedLength": "500"},
+                {"path": "/downloads/Show.S01/ep2.mkv", "length": "2000", "completedLength": "0"},
             }
             rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
             return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
@@ -240,13 +256,11 @@ func TestAdapterFiltersDotFiles(t *testing.T) {
             rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
             return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
         case 3:
-            if req.Method != "aria2.tellStatus" { t.Fatalf("call3 method=%s", req.Method) }
-            // fetchFiles during Start: repeat the same list
-            result := map[string]any{
-                "files": []map[string]any{
-                    {"path": "/downloads/.", "length": "0", "completedLength": "0"},
-                    {"path": "/downloads/real.mkv", "length": "1234", "completedLength": "1000"},
-                },
+            if req.Method != "aria2.getFiles" { t.Fatalf("call3 method=%s", req.Method) }
+            // getFiles during Start: repeat the same list
+            result := []map[string]any{
+                {"path": "/downloads/.", "length": "0", "completedLength": "0"},
+                {"path": "/downloads/real.mkv", "length": "1234", "completedLength": "1000"},
             }
             rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
             return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
@@ -268,6 +282,95 @@ func TestAdapterFiltersDotFiles(t *testing.T) {
     if len(files) != 1 { t.Fatalf("expected 1 file after filtering, got %d", len(files)) }
     if files[0].Path != "real.mkv" || files[0].Length != 1234 || files[0].Completed != 1000 {
         t.Fatalf("unexpected file: %#v", files[0])
+    }
+}
+
+func TestAdapterStartMagnetFollowedBySwap(t *testing.T) {
+    dl := &data.Download{ID: 11, Source: "magnet:?xt=urn:btih:abc&dn=My.Torrent", TargetPath: "/tmp"}
+    call := 0
+    rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+        call++
+        b, _ := io.ReadAll(r.Body)
+        var req rpcReq
+        if err := json.Unmarshal(b, &req); err != nil { t.Fatalf("decode: %v", err) }
+        switch call {
+        case 1:
+            if req.Method != "aria2.addUri" { t.Fatalf("call1 method=%s", req.Method) }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"meta123"`)})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 2:
+            if req.Method != "aria2.tellStatus" { t.Fatalf("call2 method=%s", req.Method) }
+            // tellStatus shows followedBy real gid and bittorrent name
+            result := map[string]any{
+                "followedBy": []string{"real456"},
+                "bittorrent": map[string]any{"info": map[string]any{"name": "BT.Name"}},
+            }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 3:
+            if req.Method != "aria2.getFiles" { t.Fatalf("call3 method=%s", req.Method) }
+            // getFiles for real gid
+            result := []map[string]any{{"path": "/downloads/BT.Name/file1", "length": "10", "completedLength": "2"}}
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        default:
+            t.Fatalf("unexpected extra call %d", call)
+            return nil, nil
+        }
+    })
+    a, events := newTestAdapterWithEvents(t, "secret", rt)
+    gid, err := a.Start(context.Background(), dl)
+    if err != nil { t.Fatalf("start: %v", err) }
+    if gid != "real456" { t.Fatalf("expected real gid, got %s", gid) }
+    // Start then Meta
+    <-events
+    ev := <-events
+    if ev.Type != downloader.EventMeta || ev.Meta == nil || ev.Meta.Name == nil || *ev.Meta.Name != "BT.Name" {
+        t.Fatalf("unexpected meta: %#v", ev)
+    }
+}
+
+func TestAdapterResumeFollowedBySwap(t *testing.T) {
+    dl := &data.Download{ID: 21, Source: "magnet:?xt=urn:btih:abc&dn=Z.Name", GID: "metaG"}
+    call := 0
+    rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+        call++
+        b, _ := io.ReadAll(r.Body)
+        var req rpcReq
+        if err := json.Unmarshal(b, &req); err != nil { t.Fatalf("decode: %v", err) }
+        switch call {
+        case 1:
+            if req.Method != "aria2.unpause" { t.Fatalf("call1 method=%s", req.Method) }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 2:
+            if req.Method != "aria2.tellStatus" { t.Fatalf("call2 method=%s", req.Method) }
+            result := map[string]any{
+                "followedBy": []string{"realG"},
+                "files": []map[string]any{{"path": "/tmp/x"}},
+            }
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        case 3:
+            if req.Method != "aria2.getFiles" { t.Fatalf("call3 method=%s", req.Method) }
+            result := []map[string]any{{"path": "/downloads/real/file.mkv", "length": "5", "completedLength": "1"}}
+            rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+            return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+        default:
+            t.Fatalf("unexpected call %d", call)
+            return nil, nil
+        }
+    })
+    a, events := newTestAdapterWithEvents(t, "secret", rt)
+    if err := a.Resume(context.Background(), dl); err != nil { t.Fatalf("resume: %v", err) }
+    // Expect GIDUpdate then Meta
+    ev := <-events
+    if ev.Type != downloader.EventGIDUpdate || ev.NewGID != "realG" {
+        t.Fatalf("expected gid update, got %#v", ev)
+    }
+    ev = <-events
+    if ev.Type != downloader.EventMeta || ev.Meta == nil || ev.Meta.Files == nil {
+        t.Fatalf("expected meta, got %#v", ev)
     }
 }
 
@@ -299,8 +402,8 @@ func TestAdapterPauseCancel(t *testing.T) {
                         t.Fatalf("method = %s", req.Method)
                     }
                 } else {
-                    // For Resume, a subsequent tellStatus is expected; others should not hit here
-                    if m.name != "Resume" || req.Method != "aria2.tellStatus" {
+                    // For Resume, subsequent tellStatus and getFiles are expected; others should not hit here
+                    if m.name != "Resume" || (req.Method != "aria2.tellStatus" && req.Method != "aria2.getFiles") {
                         t.Fatalf("unexpected extra call: %s", req.Method)
                     }
                 }
@@ -322,8 +425,14 @@ func TestAdapterPauseCancel(t *testing.T) {
                     rb, _ := json.Marshal(resp)
                     return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
                 }
-                // tellStatus response (empty)
-                rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`{}`)})
+                // tellStatus/getFiles response (empty)
+                var result json.RawMessage
+                if req.Method == "aria2.tellStatus" {
+                    result = json.RawMessage(`{}`)
+                } else {
+                    result = must(json.Marshal([]any{}))
+                }
+                rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: result})
                 return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
             })
             a := newTestAdapter(t, "secret", rt)
