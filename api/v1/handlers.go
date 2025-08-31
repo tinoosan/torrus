@@ -110,20 +110,24 @@ func (dh *DownloadHandler) AddDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, ErrDownloadCtx.Error(), http.StatusInternalServerError)
 		return
 	}
-	_, err := dh.svc.Add(r.Context(), dl)
-	switch {
-	case errors.Is(err, data.ErrInvalidSource), errors.Is(err, data.ErrTargetPath):
-		markErr(w, err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	case err != nil:
-	http.Error(w, "failed to create", http.StatusInternalServerError)
-	return
-	}
+    saved, created, err := dh.svc.Add(r.Context(), dl)
+    switch {
+    case errors.Is(err, data.ErrInvalidSource), errors.Is(err, data.ErrTargetPath):
+        markErr(w, err)
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    case err != nil:
+    http.Error(w, "failed to create", http.StatusInternalServerError)
+    return
+    }
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	_ = dl.ToJSON(w)
+    w.Header().Set("Content-Type", "application/json")
+    if created {
+        w.WriteHeader(http.StatusCreated)
+    } else {
+        w.WriteHeader(http.StatusOK)
+    }
+    _ = saved.ToJSON(w)
 }
 
 func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request) {

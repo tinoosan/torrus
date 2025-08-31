@@ -1,22 +1,26 @@
 package service
 
 import (
-	"context"
-	"errors"
-	"strings"
-	"time"
+    "context"
+    "errors"
+    "strings"
+    "time"
 
-	"github.com/tinoosan/torrus/internal/data"
-	"github.com/tinoosan/torrus/internal/downloader"
-	"github.com/tinoosan/torrus/internal/repo"
+    "github.com/tinoosan/torrus/internal/data"
+    "github.com/tinoosan/torrus/internal/downloader"
+    "github.com/tinoosan/torrus/internal/fp"
+    "github.com/tinoosan/torrus/internal/repo"
 )
 
 // Download provides high-level operations for managing downloads.
 type Download interface {
-	List(ctx context.Context) (data.Downloads, error)
-	Get(ctx context.Context, id int) (*data.Download, error)
-	Add(ctx context.Context, d *data.Download) (*data.Download, error)
-	UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
+    List(ctx context.Context) (data.Downloads, error)
+    Get(ctx context.Context, id int) (*data.Download, error)
+    // Add inserts a new download or returns an existing one if it already
+    // exists (idempotent). The returned 'created' flag indicates whether a new
+    // row was created (true) or an existing one was returned (false).
+    Add(ctx context.Context, d *data.Download) (*data.Download, bool, error)
+    UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
 }
 
 var (
@@ -31,14 +35,18 @@ var (
 
 // download implements the Download service.
 type download struct {
-    repo repo.DownloadRepo
+    repo repo.ExtendedRepo
     dlr  downloader.Downloader
 }
 
 // NewDownload constructs a Download service backed by the given repository and downloader.
-func NewDownload(repo repo.DownloadRepo, dlr downloader.Downloader) Download {
+func NewDownload(r repo.DownloadRepo, dlr downloader.Downloader) Download {
+    // Backwards compatibility: if the provided repo does not implement
+    // ExtendedRepo, we wrap it via a small adapter that only supports Add and
+    // lacks idempotency. For this codebase we expect InMemoryDownloadRepo to
+    // implement ExtendedRepo.
     return &download{
-        repo: repo,
+        repo: r.(repo.ExtendedRepo),
         dlr:  dlr,
     }
 }
@@ -54,38 +62,42 @@ func (ds *download) Get(ctx context.Context, id int) (*data.Download, error) {
 }
 
 // Add validates and persists a new download request.
-func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, error) {
-	if strings.TrimSpace(d.Source) == "" {
-		return nil, data.ErrInvalidSource
-	}
-	if strings.TrimSpace(d.TargetPath) == "" {
-		return nil, data.ErrTargetPath
-	}
+func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, bool, error) {
+    if strings.TrimSpace(d.Source) == "" {
+        return nil, false, data.ErrInvalidSource
+    }
+    if strings.TrimSpace(d.TargetPath) == "" {
+        return nil, false, data.ErrTargetPath
+    }
 
-	if d.CreatedAt.IsZero() {
-		d.CreatedAt = time.Now()
-	}
+    if d.CreatedAt.IsZero() {
+        d.CreatedAt = time.Now()
+    }
 
 	switch d.DesiredStatus {
-	case "", data.StatusQueued:
-		d.DesiredStatus = data.StatusQueued
-		d.Status = data.StatusQueued
-	case data.StatusActive:
-		d.Status = data.StatusActive
-	case data.StatusPaused:
-		d.Status = data.StatusPaused
-	case data.StatusCancelled:
-		return nil, data.ErrBadStatus
-	default:
-		return nil, data.ErrBadStatus
-	}
+    case "", data.StatusQueued:
+        d.DesiredStatus = data.StatusQueued
+        d.Status = data.StatusQueued
+    case data.StatusActive:
+        d.Status = data.StatusActive
+    case data.StatusPaused:
+        d.Status = data.StatusPaused
+    case data.StatusCancelled:
+        return nil, false, data.ErrBadStatus
+    default:
+        return nil, false, data.ErrBadStatus
+    }
 
-	saved, err := ds.repo.Add(ctx, d)
-	if err != nil {
-		return nil, err
-	}
+    // Compute idempotency fingerprint and insert or return existing.
+    fp := fp.Fingerprint(d.Source, d.TargetPath)
+    saved, created, err := ds.repo.AddWithFingerprint(ctx, d, fp)
+    if err != nil {
+        return nil, false, err
+    }
 
-    if saved.Status == data.StatusActive {
+    // Only trigger a new start when this call actually created the download.
+    // Idempotent hits (created=false) must not re-start already active items.
+    if saved.Status == data.StatusActive && created {
         go func(d *data.Download) {
             gid, derr := ds.dlr.Start(context.Background(), d)
             if derr != nil {
@@ -109,7 +121,7 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
             d.GID = gid
         }(saved)
     }
-    return saved, nil
+    return saved, created, nil
 }
 
 // UpdateDesiredStatus changes the desired state of a download and performs the

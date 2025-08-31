@@ -64,7 +64,7 @@ Path parameters:
 Returns `200 OK` with a single [Download](#download-object). Responds with `404` if the ID is not found.
 
 **POST /v1/downloads**  
-Create a download.  
+Create a download (idempotent).  
 Request body:
 ```json
 {
@@ -73,7 +73,13 @@ Request body:
   "desiredStatus": "Active" // optional, defaults to "Queued"
 }
 ```
-Responds with `201 Created` and the created [Download](#download-object).
+Responds with:
+- `201 Created` with the created [Download](#download-object) on the first request for a given `(source, targetPath)` pair.
+- `200 OK` with the existing [Download](#download-object) for subsequent identical requests (idempotent POST).
+
+Idempotency details:
+- Torrus computes a stable fingerprint `sha256(normalize(source), normalize(targetPath))` where `normalize` trims whitespace and cleans the target path (via `filepath.Clean`).
+- On Unix, paths remain case-sensitive. A Windows-specific normalization (e.g., lowercasing) can be added later if needed.
 
 **PATCH /v1/downloads/{id}**  
 Update the desired status of a download.  

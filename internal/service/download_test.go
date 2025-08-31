@@ -4,6 +4,7 @@ import (
     "context"
     "errors"
     "testing"
+    "time"
 
     "github.com/tinoosan/torrus/internal/data"
     "github.com/tinoosan/torrus/internal/repo"
@@ -16,6 +17,8 @@ type stubDownloader struct {
     cancelFn func(ctx context.Context, d *data.Download) error
 
     started   bool
+    startCount int
+    startedCh  chan struct{}
     paused    bool
     resumed   bool
     cancelled bool
@@ -23,6 +26,10 @@ type stubDownloader struct {
 
 func (s *stubDownloader) Start(ctx context.Context, d *data.Download) (string, error) {
     s.started = true
+    s.startCount++
+    if s.startedCh != nil {
+        select { case s.startedCh <- struct{}{}: default: }
+    }
     if s.startFn != nil {
         return s.startFn(ctx, d)
     }
@@ -56,7 +63,8 @@ func TestUpdateDesiredStatus(t *testing.T) {
 	t.Run("to Active starts and sets gid", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
     d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download) (string, error) { return "g", nil }}
+    ch := make(chan struct{}, 2)
+    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download) (string, error) { return "g", nil }, startedCh: ch}
     svc := NewDownload(r, dl)
 
 		got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusActive)
@@ -149,4 +157,70 @@ func TestUpdateDesiredStatus(t *testing.T) {
 			t.Fatalf("expected ErrBadStatus, got %v", err)
 		}
 	})
+}
+
+func TestServiceAdd_Idempotent(t *testing.T) {
+    ctx := context.Background()
+    r := repo.NewInMemoryDownloadRepo()
+    dl := &stubDownloader{}
+    svc := NewDownload(r, dl)
+
+    d := &data.Download{Source: "  s  ", TargetPath: " /x/y/../z "}
+    got1, created1, err := svc.Add(ctx, d)
+    if err != nil || !created1 {
+        t.Fatalf("first add err=%v created=%v", err, created1)
+    }
+    if dl.startCount != 0 { // status is Queued by default
+        t.Fatalf("unexpected start on queued: %d", dl.startCount)
+    }
+
+    ddup := &data.Download{Source: "s", TargetPath: "/x/z"}
+    got2, created2, err := svc.Add(ctx, ddup)
+    if err != nil || created2 {
+        t.Fatalf("second add err=%v created=%v", err, created2)
+    }
+    if got1.ID != got2.ID {
+        t.Fatalf("expected same id, got %d vs %d", got1.ID, got2.ID)
+    }
+
+    // Validation failures do not touch repo
+    _, _, err = svc.Add(ctx, &data.Download{Source: "", TargetPath: "/x"})
+    if !errors.Is(err, data.ErrInvalidSource) {
+        t.Fatalf("expected ErrInvalidSource, got %v", err)
+    }
+}
+
+func TestServiceAdd_ActiveNotRestartedOnDuplicate(t *testing.T) {
+    ctx := context.Background()
+    r := repo.NewInMemoryDownloadRepo()
+    ch := make(chan struct{}, 2)
+    dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download) (string, error) { return "g", nil }, startedCh: ch}
+    svc := NewDownload(r, dl)
+
+    // First add with DesiredStatus Active -> should start once
+    first := &data.Download{Source: "s", TargetPath: "/t", DesiredStatus: data.StatusActive}
+    _, created, err := svc.Add(ctx, first)
+    if err != nil || !created {
+        t.Fatalf("first add err=%v created=%v", err, created)
+    }
+    select {
+    case <-ch:
+        // ok
+    case <-time.After(200 * time.Millisecond):
+        t.Fatalf("downloader Start not called")
+    }
+
+    // Duplicate add with same pair: must not start again
+    dup := &data.Download{Source: " s ", TargetPath: " /t/./"}
+    _, created2, err := svc.Add(ctx, dup)
+    if err != nil || created2 {
+        t.Fatalf("dup add err=%v created=%v", err, created2)
+    }
+    // Ensure no additional start signal after a brief wait
+    select {
+    case <-ch:
+        t.Fatalf("unexpected second Start on duplicate")
+    case <-time.After(200 * time.Millisecond):
+        // ok
+    }
 }
