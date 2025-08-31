@@ -10,6 +10,7 @@ import (
 	"github.com/tinoosan/torrus/internal/service"
 )
 
+// New sets up the application routes and required middleware.
 func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 
 	r := mux.NewRouter()

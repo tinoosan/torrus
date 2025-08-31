@@ -10,6 +10,8 @@ type ChanReporter struct {
 	ch chan<- Event
 }
 
+// NewChanReporter constructs a Reporter that sends events to the provided
+// channel.
 func NewChanReporter(ch chan<- Event) *ChanReporter { return &ChanReporter{ch: ch} }
 
 func (r *ChanReporter) Report(e Event) {

@@ -13,11 +13,14 @@ import (
 	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
 )
 
+// Adapter implements the Downloader interface using an aria2 JSON-RPC client.
+// It translates Torrus download operations into aria2 RPC calls.
 type Adapter struct {
 	cl  *aria2.Client
 	rep downloader.Reporter
 }
 
+// NewAdapter creates a new Adapter using the provided aria2 client and reporter.
 func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 	return &Adapter{cl: cl, rep: rep}
 }
