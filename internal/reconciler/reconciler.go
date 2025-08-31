@@ -15,6 +15,8 @@ type Reconciler struct {
 	repo   repo.DownloadRepo
 	events <-chan downloader.Event
 	log    *slog.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	stop chan struct{}
 	wg   sync.WaitGroup
@@ -26,12 +28,13 @@ func New(log *slog.Logger, repo repo.DownloadRepo, events <-chan downloader.Even
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Reconciler{repo: repo, events: events, log: log}
+	return &Reconciler{repo: repo, events: events, log: log, ctx: context.Background()}
 }
 
 // Run starts the reconciliation loop.
 func (r *Reconciler) Run() {
 	r.stop = make(chan struct{})
+	r.ctx, r.cancel = context.WithCancel(r.ctx)
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
@@ -53,6 +56,9 @@ func (r *Reconciler) Run() {
 func (r *Reconciler) Stop() {
 	if r.stop != nil {
 		close(r.stop)
+		if r.cancel != nil {
+			r.cancel()
+		}
 		r.wg.Wait()
 	}
 }
@@ -64,7 +70,7 @@ func (r *Reconciler) handle(e downloader.Event) {
 	)
 	switch e.Type {
 	case downloader.EventStart:
-		dl, err := r.repo.Get(context.Background(), e.ID)
+		dl, err := r.repo.Get(r.ctx, e.ID)
 		if err != nil {
 			r.log.Error("get", "id", e.ID, "err", err)
 			return
@@ -101,7 +107,7 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
-	_, err := r.repo.Update(context.Background(), e.ID, func(dl *data.Download) error {
+	_, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
 		dl.Status = status
 		if checkTerminal {
 			dl.GID = ""
@@ -116,7 +122,7 @@ func (r *Reconciler) handle(e downloader.Event) {
 }
 
 func (r *Reconciler) checkTerminal(e downloader.Event) bool {
-	dl, err := r.repo.Get(context.Background(), e.ID)
+	dl, err := r.repo.Get(r.ctx, e.ID)
 	if err != nil {
 		r.log.Error("get", "id", e.ID, "err", err)
 		return false
