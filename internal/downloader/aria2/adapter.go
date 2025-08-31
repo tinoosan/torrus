@@ -17,8 +17,8 @@ import (
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
 // It translates Torrus download operations into aria2 RPC calls.
 type Adapter struct {
-	cl  *aria2.Client
-	rep downloader.Reporter
+    cl  *aria2.Client
+    rep downloader.Reporter
 
 	mu      sync.RWMutex
 	gidToID map[string]int
@@ -30,6 +30,7 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 }
 
 var _ downloader.Downloader = (*Adapter)(nil)
+var _ downloader.EventSource = (*Adapter)(nil)
 
 // --- JSON-RPC wire types ---
 
@@ -159,25 +160,25 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 
 // EmitComplete can be used by callers to signal that a download finished
 // successfully. Typically this would be triggered by an aria2 notification.
-func (a *Adapter) EmitComplete(id int, gid string) {
-	if a.rep != nil {
-		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventComplete})
-	}
+func (a *Adapter) emitComplete(id int, gid string) {
+    if a.rep != nil {
+        a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventComplete})
+    }
 }
 
 // EmitFailed signals that a download has failed.
-func (a *Adapter) EmitFailed(id int, gid string) {
-	if a.rep != nil {
-		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventFailed})
-	}
+func (a *Adapter) emitFailed(id int, gid string) {
+    if a.rep != nil {
+        a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventFailed})
+    }
 }
 
 // EmitProgress publishes a progress update for the given download. Callers are
 // responsible for providing whatever metrics they have available.
-func (a *Adapter) EmitProgress(id int, gid string, p downloader.Progress) {
-	if a.rep != nil {
-		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventProgress, Progress: &p})
-	}
+func (a *Adapter) emitProgress(id int, gid string, p downloader.Progress) {
+    if a.rep != nil {
+        a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventProgress, Progress: &p})
+    }
 }
 
 // Run subscribes to aria2 notifications and emits corresponding downloader events.
@@ -208,16 +209,16 @@ func (a *Adapter) handleNotification(n aria2.Notification) {
 			continue
 		}
 		switch n.Method {
-		case "aria2.onDownloadComplete":
-			a.EmitComplete(id, p.GID)
-			a.mu.Lock()
-			delete(a.gidToID, p.GID)
-			a.mu.Unlock()
-		case "aria2.onDownloadError":
-			a.EmitFailed(id, p.GID)
-			a.mu.Lock()
-			delete(a.gidToID, p.GID)
-			a.mu.Unlock()
+            case "aria2.onDownloadComplete":
+                a.emitComplete(id, p.GID)
+                a.mu.Lock()
+                delete(a.gidToID, p.GID)
+                a.mu.Unlock()
+            case "aria2.onDownloadError":
+                a.emitFailed(id, p.GID)
+                a.mu.Lock()
+                delete(a.gidToID, p.GID)
+                a.mu.Unlock()
 		case "aria2.onDownloadPause":
 			if a.rep != nil {
 				a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventPaused})
