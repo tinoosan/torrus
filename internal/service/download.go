@@ -85,28 +85,28 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	}
 
 	if saved.Status == data.StatusActive {
-		go func(ctx context.Context, d *data.Download) {
-			gid, derr := ds.dlr.Start(ctx, d)
+		go func(d *data.Download) {
+			gid, derr := ds.dlr.Start(context.Background(), d)
 			if derr != nil {
-				_, _ = ds.repo.Update(ctx, d.ID, func(dl *data.Download) error {
+				_, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
 				})
 				return
 			}
-			_, err := ds.repo.Update(ctx, d.ID, func(dl *data.Download) error {
+			_, err := ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
 				dl.GID = gid
 				return nil
 			})
 			if err != nil {
-				_, _ = ds.repo.Update(ctx, d.ID, func(dl *data.Download) error {
+				_, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
 				})
 				return
 			}
 			d.GID = gid
-		}(ctx, saved)
+		}(saved)
 	}
 	return saved, nil
 }
