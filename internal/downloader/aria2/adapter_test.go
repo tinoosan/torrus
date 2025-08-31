@@ -172,24 +172,44 @@ func TestAdapterPauseCancel(t *testing.T) {
 }
 
 func TestAdapterHandleNotification(t *testing.T) {
-	events := make(chan downloader.Event, 2)
-	rep := downloader.NewChanReporter(events)
-	a := &Adapter{rep: rep, gidToID: map[string]int{"g1": 1, "g2": 2}}
+    events := make(chan downloader.Event, 2)
+    rep := downloader.NewChanReporter(events)
+    a := &Adapter{rep: rep, gidToID: map[string]int{"g1": 1, "g2": 2}}
 
-	// Complete event
-	a.handleNotification(aria2.Notification{Method: "aria2.onDownloadComplete", Params: []aria2.NotificationEvent{{GID: "g1"}}})
-	ev := <-events
-	if ev.Type != downloader.EventComplete || ev.ID != 1 || ev.GID != "g1" {
-		t.Fatalf("unexpected event %#v", ev)
-	}
-	if _, ok := a.gidToID["g1"]; ok {
-		t.Fatalf("gid not removed after complete")
-	}
+    // Complete event
+    a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadComplete", Params: []aria2.NotificationEvent{{GID: "g1"}}})
+    ev := <-events
+    if ev.Type != downloader.EventComplete || ev.ID != 1 || ev.GID != "g1" {
+        t.Fatalf("unexpected event %#v", ev)
+    }
+    if _, ok := a.gidToID["g1"]; ok {
+        t.Fatalf("gid not removed after complete")
+    }
 
-	// Error event
-	a.handleNotification(aria2.Notification{Method: "aria2.onDownloadError", Params: []aria2.NotificationEvent{{GID: "g2"}}})
-	ev = <-events
-	if ev.Type != downloader.EventFailed || ev.ID != 2 || ev.GID != "g2" {
-		t.Fatalf("unexpected event %#v", ev)
-	}
+    // Error event
+    a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadError", Params: []aria2.NotificationEvent{{GID: "g2"}}})
+    ev = <-events
+    if ev.Type != downloader.EventFailed || ev.ID != 2 || ev.GID != "g2" {
+        t.Fatalf("unexpected event %#v", ev)
+    }
+}
+
+func TestAdapterEmitProgress(t *testing.T) {
+    events := make(chan downloader.Event, 1)
+    rep := downloader.NewChanReporter(events)
+    a := &Adapter{rep: rep}
+
+    p := downloader.Progress{Completed: 42, Total: 100, Speed: 1024}
+    a.emitProgress(7, "gid-xyz", p)
+
+    ev := <-events
+    if ev.Type != downloader.EventProgress {
+        t.Fatalf("expected progress event, got %#v", ev)
+    }
+    if ev.ID != 7 || ev.GID != "gid-xyz" {
+        t.Fatalf("unexpected id/gid: %#v", ev)
+    }
+    if ev.Progress == nil || ev.Progress.Completed != 42 || ev.Progress.Total != 100 || ev.Progress.Speed != 1024 {
+        t.Fatalf("unexpected progress payload: %#v", ev.Progress)
+    }
 }

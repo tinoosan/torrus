@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
@@ -49,8 +50,16 @@ type rpcResp struct {
 }
 
 type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+    Code    int    `json:"code"`
+    Message string `json:"message"`
+}
+
+// statusResp is a partial view of aria2.tellStatus response.
+// Numeric values are returned as decimal strings by aria2.
+type statusResp struct {
+    TotalLength     string `json:"totalLength"`
+    CompletedLength string `json:"completedLength"`
+    DownloadSpeed   string `json:"downloadSpeed"`
 }
 
 func (a *Adapter) call(ctx context.Context, method string, params []interface{}) (json.RawMessage, error) {
@@ -95,10 +104,48 @@ func (a *Adapter) call(ctx context.Context, method string, params []interface{})
 
 // helper: token parameter if secret set (aria2 expects "token:<secret>" as first param)
 func (a *Adapter) tokenParam() []interface{} {
-	if s := a.cl.Secret(); s != "" {
-		return []interface{}{"token:" + s}
-	}
-	return nil
+    if s := a.cl.Secret(); s != "" {
+        return []interface{}{"token:" + s}
+    }
+    return nil
+}
+
+// tellStatus queries aria2 for the current status of the given GID and maps it
+// to a downloader.Progress struct.
+func (a *Adapter) tellStatus(ctx context.Context, gid string) (*downloader.Progress, error) {
+    params := make([]interface{}, 0, 3)
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
+    }
+    // gid
+    params = append(params, gid)
+    // keys to limit payload
+    params = append(params, []string{"totalLength", "completedLength", "downloadSpeed"})
+
+    res, err := a.call(ctx, "aria2.tellStatus", params)
+    if err != nil {
+        return nil, err
+    }
+    var sr statusResp
+    if err := json.Unmarshal(res, &sr); err != nil {
+        return nil, fmt.Errorf("parse tellStatus: %w", err)
+    }
+    parse := func(s string) int64 {
+        if s == "" {
+            return 0
+        }
+        v, err := strconv.ParseInt(s, 10, 64)
+        if err != nil {
+            return 0
+        }
+        return v
+    }
+    p := &downloader.Progress{
+        Completed: parse(sr.CompletedLength),
+        Total:     parse(sr.TotalLength),
+        Speed:     parse(sr.DownloadSpeed),
+    }
+    return p, nil
 }
 
 // Start: aria2.addUri([token?, [uris], options])
@@ -195,12 +242,12 @@ func (a *Adapter) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-			a.handleNotification(n)
+				a.handleNotification(ctx, n)
 		}
 	}
 }
 
-func (a *Adapter) handleNotification(n aria2.Notification) {
+func (a *Adapter) handleNotification(ctx context.Context, n aria2.Notification) {
 	for _, p := range n.Params {
 		a.mu.RLock()
 		id, ok := a.gidToID[p.GID]
@@ -208,7 +255,7 @@ func (a *Adapter) handleNotification(n aria2.Notification) {
 		if !ok {
 			continue
 		}
-		switch n.Method {
+			switch n.Method {
             case "aria2.onDownloadComplete":
                 a.emitComplete(id, p.GID)
                 a.mu.Lock()
@@ -219,10 +266,18 @@ func (a *Adapter) handleNotification(n aria2.Notification) {
                 a.mu.Lock()
                 delete(a.gidToID, p.GID)
                 a.mu.Unlock()
-		case "aria2.onDownloadPause":
-			if a.rep != nil {
-				a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventPaused})
-			}
+			case "aria2.onDownloadStart":
+				// Emit an initial progress snapshot on start if available.
+				if prog, err := a.tellStatus(ctx, p.GID); err == nil && prog != nil {
+					a.emitProgress(id, p.GID, *prog)
+				}
+			case "aria2.onDownloadPause":
+				if a.rep != nil {
+					a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventPaused})
+				}
+				if prog, err := a.tellStatus(ctx, p.GID); err == nil && prog != nil {
+					a.emitProgress(id, p.GID, *prog)
+				}
 		case "aria2.onDownloadStop":
 			if a.rep != nil {
 				a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventCancelled})
