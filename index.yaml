@@ -120,7 +120,7 @@ paths:
         "404":
           $ref: "#/components/responses/PlainError"
         "409":
-          description: Conflict due to existing target file when policy=error
+          description: Conflict due to existing target file
           content:
             text/plain:
               schema:
