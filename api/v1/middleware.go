@@ -39,6 +39,12 @@ func MiddlewareDownloadValidation(next http.Handler) http.Handler {
 			http.Error(w, ErrReadOnlyName.Error(), http.StatusBadRequest)
 			return
 		}
+        // Enforce read-only fields: reject if client sets files.
+        if len(dl.Files) > 0 {
+            markErr(w, ErrReadOnlyFiles)
+            http.Error(w, ErrReadOnlyFiles.Error(), http.StatusBadRequest)
+            return
+        }
 
 		ctx := context.WithValue(r.Context(), ctxKeyDownload{}, dl)
 		next.ServeHTTP(w, r.WithContext(ctx))

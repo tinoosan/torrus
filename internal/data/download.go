@@ -17,9 +17,23 @@ type Download struct {
     TargetPath    string         `json:"targetPath"`
     // Name is a read-only field populated by the downloader via events.
     Name          string         `json:"name,omitempty"`
+    // Files is an optional, read-only list of files for this download.
+    // It is populated by downloader adapters when available.
+    Files         []DownloadFile `json:"files,omitempty"`
     Status        DownloadStatus `json:"status"`
     DesiredStatus DownloadStatus `json:"desiredStatus,omitempty"`
     CreatedAt     time.Time      `json:"createdAt"`
+}
+
+// DownloadFile represents a single file within a multi-file download.
+// All fields are optional, depending on downloader capabilities.
+type DownloadFile struct {
+    // Path is a relative path or filename for the file within the download.
+    Path      string `json:"path"`
+    // Length is the size of the file in bytes, if known.
+    Length    int64  `json:"length,omitempty"`
+    // Completed is the number of bytes downloaded for this file, if known.
+    Completed int64  `json:"completed,omitempty"`
 }
 
 // Possible DownloadStatus values.
@@ -61,11 +75,16 @@ func (d *Download) FromJSON(r io.Reader) error { return json.NewDecoder(r).Decod
 
 // Clone returns a copy of the download. The receiver is left unchanged.
 func (d *Download) Clone() *Download {
-	if d == nil {
-		return nil
-	}
-	cp := *d
-	return &cp
+    if d == nil {
+        return nil
+    }
+    cp := *d
+    // Deep copy Files slice to avoid data races through shared backing arrays.
+    if len(d.Files) > 0 {
+        cp.Files = make([]DownloadFile, len(d.Files))
+        copy(cp.Files, d.Files)
+    }
+    return &cp
 }
 
 // Clone returns copies of each download in the slice.
