@@ -53,7 +53,13 @@ paths:
                   targetPath: "/movies/"
       responses:
         "201":
-          description: Download created
+          description: Download created (first time)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Download"
+        "200":
+          description: Existing download returned (idempotent hit)
           content:
             application/json:
               schema:

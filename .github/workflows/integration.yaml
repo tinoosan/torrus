@@ -73,6 +73,15 @@ jobs:
           ID=$(jq -r '.id' </tmp/new.json)
           test -n "$ID"
 
+          # Repeat same POST -> expect 200 and same id
+          STATUS=$(curl -s -o /tmp/dup.json -w "%{http_code}" -X POST http://localhost:9090/v1/downloads \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ci-token" \
+            -d '{"source":"https://speed.hetzner.de/1MB.bin","targetPath":"/data"}')
+          test "$STATUS" = "200"
+          ID2=$(jq -r '.id' </tmp/dup.json)
+          test "$ID" = "$ID2"
+
           curl -fsS -X PATCH "http://localhost:9090/v1/downloads/$ID" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ci-token" \

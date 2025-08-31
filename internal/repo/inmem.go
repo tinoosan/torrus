@@ -10,17 +10,20 @@ import (
 // InMemoryDownloadRepo stores downloads in memory. It is intended for tests and
 // development usage and is not safe for persistence across restarts.
 type InMemoryDownloadRepo struct {
-	mu        sync.RWMutex
-	downloads data.Downloads
-	nextID    int
+    mu        sync.RWMutex
+    downloads data.Downloads
+    nextID    int
+    // fpIndex maps fingerprint -> index into downloads slice
+    fpIndex   map[string]int
 }
 
 // NewInMemoryDownloadRepo returns an initialized in-memory repository.
 func NewInMemoryDownloadRepo() *InMemoryDownloadRepo {
-	return &InMemoryDownloadRepo{
-		downloads: make(data.Downloads, 0),
-		nextID:    1,
-	}
+    return &InMemoryDownloadRepo{
+        downloads: make(data.Downloads, 0),
+        nextID:    1,
+        fpIndex:   make(map[string]int),
+    }
 }
 
 // List returns all stored downloads.
@@ -44,12 +47,46 @@ func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download,
 
 // Add inserts a new download and assigns it a unique ID.
 func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data.Download, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	d.ID = r.nextID
-	r.nextID++
-	r.downloads = append(r.downloads, d)
-	return d.Clone(), nil
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    d.ID = r.nextID
+    r.nextID++
+    r.downloads = append(r.downloads, d)
+    return d.Clone(), nil
+}
+
+// GetByFingerprint returns a clone of the download that matches the provided
+// fingerprint, or data.ErrNotFound if none exists.
+func (r *InMemoryDownloadRepo) GetByFingerprint(ctx context.Context, fp string) (*data.Download, error) {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+    idx, ok := r.fpIndex[fp]
+    if !ok || idx < 0 || idx >= len(r.downloads) {
+        return nil, data.ErrNotFound
+    }
+    return r.downloads[idx].Clone(), nil
+}
+
+// AddWithFingerprint atomically checks if a fingerprint already exists; if so,
+// it returns the existing download and created=false. Otherwise it inserts the
+// provided download, assigns a new ID, indexes the fingerprint and returns
+// created=true.
+func (r *InMemoryDownloadRepo) AddWithFingerprint(ctx context.Context, d *data.Download, fp string) (*data.Download, bool, error) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+
+    if idx, ok := r.fpIndex[fp]; ok {
+        if idx >= 0 && idx < len(r.downloads) {
+            return r.downloads[idx].Clone(), false, nil
+        }
+        // fallthrough to reinsert if index out of range (shouldn't happen)
+    }
+
+    d.ID = r.nextID
+    r.nextID++
+    r.downloads = append(r.downloads, d)
+    r.fpIndex[fp] = len(r.downloads) - 1
+    return d.Clone(), true, nil
 }
 
 // Update applies the mutate function to the download with the given ID and

@@ -211,3 +211,72 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 		t.Fatalf("expected %d downloads, got %d", n, got)
 	}
 }
+
+func TestAddWithFingerprint_IdempotentAndGetByFingerprint(t *testing.T) {
+    ctx := context.Background()
+    r := NewInMemoryDownloadRepo()
+
+    // First insert
+    d := &data.Download{Source: " s ", TargetPath: " t "}
+    got, created, err := r.AddWithFingerprint(ctx, d, "fp1")
+    if err != nil || !created {
+        t.Fatalf("expected created=true got err=%v created=%v", err, created)
+    }
+    if got.ID == 0 {
+        t.Fatalf("id not assigned")
+    }
+
+    // Second insert with same fingerprint
+    d2 := &data.Download{Source: " s ", TargetPath: " t "}
+    got2, created2, err := r.AddWithFingerprint(ctx, d2, "fp1")
+    if err != nil || created2 {
+        t.Fatalf("expected created=false got err=%v created=%v", err, created2)
+    }
+    if got2.ID != got.ID {
+        t.Fatalf("expected same id got %d vs %d", got2.ID, got.ID)
+    }
+
+    // Lookup by fingerprint
+    byfp, err := r.GetByFingerprint(ctx, "fp1")
+    if err != nil || byfp.ID != got.ID {
+        t.Fatalf("GetByFingerprint mismatch: %#v err=%v", byfp, err)
+    }
+}
+
+func TestAddWithFingerprint_ConcurrentSingleCreate(t *testing.T) {
+    ctx := context.Background()
+    r := NewInMemoryDownloadRepo()
+
+    const gor = 50
+    var wg sync.WaitGroup
+    ids := make(chan int, gor)
+    for i := 0; i < gor; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            d := &data.Download{Source: "s", TargetPath: "t"}
+            got, _, err := r.AddWithFingerprint(ctx, d, "samefp")
+            if err != nil {
+                t.Errorf("AddWithFingerprint: %v", err)
+                return
+            }
+            ids <- got.ID
+        }()
+    }
+    wg.Wait()
+    close(ids)
+
+    first := -1
+    for id := range ids {
+        if first == -1 {
+            first = id
+        } else if id != first {
+            t.Fatalf("saw different ids: %d vs %d", id, first)
+        }
+    }
+
+    list, _ := r.List(ctx)
+    if len(list) != 1 {
+        t.Fatalf("expected 1 row, got %d", len(list))
+    }
+}
