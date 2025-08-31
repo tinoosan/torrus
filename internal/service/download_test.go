@@ -16,7 +16,7 @@ type mockDownloadRepo struct {
 	listFn     func(ctx context.Context) (data.Downloads, error)
 	getFn      func(ctx context.Context, id int) (*data.Download, error)
 	addFn      func(ctx context.Context, d *data.Download) (*data.Download, error)
-	updateFn   func(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
+	updateFn   func(ctx context.Context, id int, uf repo.UpdateFields) (*data.Download, error)
 	setFn      func(ctx context.Context, id int, status data.DownloadStatus) error
 	setGIDFn   func(ctx context.Context, id int, gid string) error
 	clearGIDFn func(ctx context.Context, id int) error
@@ -98,7 +98,14 @@ func (m *mockDownloadRepo) Add(ctx context.Context, d *data.Download) (*data.Dow
 func (m *mockDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
 	m.updateCalled = true
 	if m.updateFn != nil {
-		return m.updateFn(ctx, id, status)
+		return m.updateFn(ctx, id, repo.UpdateFields{DesiredStatus: &status})
+	}
+	return nil, nil
+}
+
+func (m *mockDownloadRepo) Update(ctx context.Context, id int, uf repo.UpdateFields) (*data.Download, error) {
+	if m.updateFn != nil {
+		return m.updateFn(ctx, id, uf)
 	}
 	return nil, nil
 }
@@ -273,11 +280,11 @@ func TestDownloadService_UpdateDesiredStatus(t *testing.T) {
 				}
 				return &data.Download{ID: id, DesiredStatus: data.StatusActive, Status: data.StatusActive}, nil
 			},
-			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
-				if s != data.StatusActive {
-					t.Fatalf("expected desired Active, got %s", s)
+			updateFn: func(ctx context.Context, id int, uf repo.UpdateFields) (*data.Download, error) {
+				if uf.DesiredStatus == nil || *uf.DesiredStatus != data.StatusActive {
+					t.Fatalf("expected desired Active, got %v", uf.DesiredStatus)
 				}
-				return &data.Download{ID: 42, DesiredStatus: s, Status: data.StatusQueued}, nil
+				return &data.Download{ID: 42, DesiredStatus: *uf.DesiredStatus, Status: data.StatusQueued}, nil
 			},
 			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
 				if id != 42 {
@@ -317,11 +324,11 @@ func TestDownloadService_UpdateDesiredStatus(t *testing.T) {
 				}
 				return &data.Download{ID: id, DesiredStatus: data.StatusPaused, Status: data.StatusPaused, GID: "gid"}, nil
 			},
-			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
-				if s != data.StatusPaused {
-					t.Fatalf("expected desired Paused, got %s", s)
+			updateFn: func(ctx context.Context, id int, uf repo.UpdateFields) (*data.Download, error) {
+				if uf.DesiredStatus == nil || *uf.DesiredStatus != data.StatusPaused {
+					t.Fatalf("expected desired Paused, got %v", uf.DesiredStatus)
 				}
-				return &data.Download{ID: 7, DesiredStatus: s, Status: data.StatusQueued}, nil
+				return &data.Download{ID: 7, DesiredStatus: *uf.DesiredStatus, Status: data.StatusQueued}, nil
 			},
 			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
 				if id != 7 {
@@ -361,11 +368,11 @@ func TestDownloadService_UpdateDesiredStatus(t *testing.T) {
 				}
 				return &data.Download{ID: id, DesiredStatus: data.StatusCancelled, Status: data.StatusCancelled}, nil
 			},
-			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
-				if s != data.StatusCancelled {
-					t.Fatalf("expected desired Cancelled, got %s", s)
+			updateFn: func(ctx context.Context, id int, uf repo.UpdateFields) (*data.Download, error) {
+				if uf.DesiredStatus == nil || *uf.DesiredStatus != data.StatusCancelled {
+					t.Fatalf("expected desired Cancelled, got %v", uf.DesiredStatus)
 				}
-				return &data.Download{ID: 3, DesiredStatus: s, Status: data.StatusQueued}, nil
+				return &data.Download{ID: 3, DesiredStatus: *uf.DesiredStatus, Status: data.StatusQueued}, nil
 			},
 			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
 				if id != 3 {
@@ -400,8 +407,8 @@ func TestDownloadService_UpdateDesiredStatus(t *testing.T) {
 			getFn: func(ctx context.Context, id int) (*data.Download, error) {
 				return &data.Download{ID: id}, nil
 			},
-			updateFn: func(ctx context.Context, id int, s data.DownloadStatus) (*data.Download, error) {
-				return &data.Download{ID: 99, DesiredStatus: s, Status: data.StatusQueued}, nil
+			updateFn: func(ctx context.Context, id int, uf repo.UpdateFields) (*data.Download, error) {
+				return &data.Download{ID: 99, DesiredStatus: *uf.DesiredStatus, Status: data.StatusQueued}, nil
 			},
 			setFn: func(ctx context.Context, id int, s data.DownloadStatus) error {
 				if s != data.StatusError {
