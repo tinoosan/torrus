@@ -52,52 +52,53 @@ func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data
 	return d.Clone(), nil
 }
 
-// UpdateDesiredStatus sets the desired status for a download.
-func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
+// Update applies modifications specified in UpdateFields to the download with
+// the given ID. Nil fields in uf leave the corresponding values unchanged. The
+// returned download is a deep clone of the stored entity.
+func (r *InMemoryDownloadRepo) Update(ctx context.Context, id int, uf UpdateFields) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	dl, err := r.findByID(id)
 	if err != nil {
 		return nil, err
 	}
-	dl.DesiredStatus = status
+
+	if uf.DesiredStatus != nil {
+		dl.DesiredStatus = *uf.DesiredStatus
+	}
+	if uf.Status != nil {
+		dl.Status = *uf.Status
+	}
+	if uf.GID != nil {
+		dl.GID = *uf.GID
+	}
+
 	return dl.Clone(), nil
+}
+
+// UpdateDesiredStatus sets the desired status for a download.
+func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
+	return r.Update(ctx, id, UpdateFields{DesiredStatus: &status})
 }
 
 // SetStatus updates the current status of a download.
 func (r *InMemoryDownloadRepo) SetStatus(ctx context.Context, id int, status data.DownloadStatus) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	dl, err := r.findByID(id)
-	if err != nil {
-		return err
-	}
-	dl.Status = status
-	return nil
+	_, err := r.Update(ctx, id, UpdateFields{Status: &status})
+	return err
 }
 
 // SetGID associates a downloader GID with the download.
 func (r *InMemoryDownloadRepo) SetGID(ctx context.Context, id int, gid string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	dl, err := r.findByID(id)
-	if err != nil {
-		return err
-	}
-	dl.GID = gid
-	return nil
+	_, err := r.Update(ctx, id, UpdateFields{GID: &gid})
+	return err
 }
 
 // ClearGID removes any downloader GID from the download.
 func (r *InMemoryDownloadRepo) ClearGID(ctx context.Context, id int) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	dl, err := r.findByID(id)
-	if err != nil {
-		return err
-	}
-	dl.GID = ""
-	return nil
+	empty := ""
+	_, err := r.Update(ctx, id, UpdateFields{GID: &empty})
+	return err
 }
 
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
