@@ -44,5 +44,9 @@ func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 	patch.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
 	patch.Use(v1.MiddlewarePatchDesired)
 
+	// DELETEs
+	del := api.Methods("DELETE").Subrouter()
+	del.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.DeleteDownload)
+
 	return r
 }
