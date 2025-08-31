@@ -117,7 +117,8 @@ func TestUpdateDesiredStatus(t *testing.T) {
 	t.Run("invalid status", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
 		svc := NewDownload(r, &stubDownloader{})
-		if _, err := svc.UpdateDesiredStatus(ctx, 1, data.StatusQueued); !errors.Is(err, data.ErrBadStatus) {
+		_, err := svc.UpdateDesiredStatus(ctx, 1, data.StatusQueued)
+		if !errors.Is(err, data.ErrBadStatus) {
 			t.Fatalf("expected ErrBadStatus, got %v", err)
 		}
 	})

@@ -101,13 +101,14 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
-	if _, err := r.repo.Update(context.Background(), e.ID, func(dl *data.Download) error {
+	_, err := r.repo.Update(context.Background(), e.ID, func(dl *data.Download) error {
 		dl.Status = status
 		if checkTerminal {
 			dl.GID = ""
 		}
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		r.log.Error("update", "id", e.ID, "status", status, "err", err)
 		return
 	}
