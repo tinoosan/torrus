@@ -11,6 +11,9 @@ import (
 	"github.com/tinoosan/torrus/internal/data"
 )
 
+func PtrStatus(s data.DownloadStatus) *data.DownloadStatus { return &s }
+func PtrString(s string) *string                           { return &s }
+
 func TestInMemoryDownloadRepo_Add(t *testing.T) {
 	repo := NewInMemoryDownloadRepo()
 	ctx := context.Background()
@@ -238,6 +241,122 @@ func TestInMemoryDownloadRepo_SetGID_Concurrent(t *testing.T) {
 			defer wg.Done()
 			if err := r.SetGID(ctx, d.ID, g); err != nil {
 				t.Errorf("SetGID error: %v", err)
+			}
+		}(gid)
+	}
+	wg.Wait()
+
+	got, err := r.Get(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	found := false
+	for _, g := range gids {
+		if got.GID == g {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("final GID %q not among %v", got.GID, gids)
+	}
+}
+
+func TestInMemoryDownloadRepo_Update(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+
+	t.Run("no-op", func(t *testing.T) {
+		before, _ := r.Get(ctx, d.ID)
+		got, err := r.Update(ctx, d.ID, UpdateFields{})
+		if err != nil {
+			t.Fatalf("Update error: %v", err)
+		}
+		after, _ := r.Get(ctx, d.ID)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("expected no change, got %#v want %#v", after, before)
+		}
+		// modify returned clone and ensure repo unchanged
+		got.GID = "mutated"
+		again, _ := r.Get(ctx, d.ID)
+		if again.GID == "mutated" {
+			t.Fatalf("repository modified via clone")
+		}
+	})
+
+	t.Run("single fields", func(t *testing.T) {
+		for name, uf := range map[string]UpdateFields{
+			"desired": {DesiredStatus: PtrStatus(data.StatusPaused)},
+			"status":  {Status: PtrStatus(data.StatusComplete)},
+			"gid":     {GID: PtrString("G1")},
+		} {
+			t.Run(name, func(t *testing.T) {
+				got, err := r.Update(ctx, d.ID, uf)
+				if err != nil {
+					t.Fatalf("Update error: %v", err)
+				}
+				if uf.DesiredStatus != nil && got.DesiredStatus != *uf.DesiredStatus {
+					t.Fatalf("DesiredStatus not updated")
+				}
+				if uf.Status != nil && got.Status != *uf.Status {
+					t.Fatalf("Status not updated")
+				}
+				if uf.GID != nil && got.GID != *uf.GID {
+					t.Fatalf("GID not updated")
+				}
+			})
+		}
+	})
+
+	t.Run("multi-field", func(t *testing.T) {
+		uf := UpdateFields{
+			DesiredStatus: PtrStatus(data.StatusActive),
+			Status:        PtrStatus(data.StatusActive),
+			GID:           PtrString("GG"),
+		}
+		got, err := r.Update(ctx, d.ID, uf)
+		if err != nil {
+			t.Fatalf("Update error: %v", err)
+		}
+		if got.DesiredStatus != data.StatusActive || got.Status != data.StatusActive || got.GID != "GG" {
+			t.Fatalf("multi-field update failed: %#v", got)
+		}
+	})
+
+	t.Run("clear gid", func(t *testing.T) {
+		uf := UpdateFields{GID: PtrString("")}
+		got, err := r.Update(ctx, d.ID, uf)
+		if err != nil {
+			t.Fatalf("Update error: %v", err)
+		}
+		if got.GID != "" {
+			t.Fatalf("expected GID cleared, got %q", got.GID)
+		}
+	})
+}
+
+func TestInMemoryDownloadRepo_Update_Concurrent(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+
+	gids := []string{"G1", "G2", "G3", "G4", "G5"}
+	var wg sync.WaitGroup
+	for _, gid := range gids {
+		wg.Add(1)
+		go func(g string) {
+			defer wg.Done()
+			got, err := r.Update(ctx, d.ID, UpdateFields{GID: PtrString(g)})
+			if err != nil {
+				t.Errorf("Update error: %v", err)
+				return
+			}
+			// mutate returned clone and ensure repo not affected
+			got.GID = "mutated"
+			res, err := r.Get(ctx, d.ID)
+			if err == nil && res.GID == "mutated" {
+				t.Errorf("repository modified via clone")
 			}
 		}(gid)
 	}
