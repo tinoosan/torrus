@@ -143,3 +143,6 @@ curl -X PATCH http://localhost:8080/v1/downloads/123 \
 # Health check
 curl http://localhost:8080/healthz
 ```
+
+## Contributing & Architecture
+See [docs/README.md](docs/README.md) for developer guides and architecture details.
