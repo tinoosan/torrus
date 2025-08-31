@@ -79,7 +79,8 @@ func main() {
 		return
 	}
 	defer func() {
-		if err := rotator.Close(); err != nil {
+		err := rotator.Close()
+		if err != nil {
 			fmt.Printf("close log file: %v", err)
 		}
 	}()
@@ -135,7 +136,8 @@ func main() {
 			"rotate_age_days", logOptions.Age,
 		)
 		logger.Info("Starting Torrus API on", "port", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		err := server.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
 			logger.Error("Server error:", "err", err)
 		}
 	}()
@@ -148,7 +150,8 @@ func main() {
 	timeout := 30 * time.Second
 	timeoutContext, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	if err := server.Shutdown(timeoutContext); err != nil {
+	err = server.Shutdown(timeoutContext)
+	if err != nil {
 		logger.Error("Graceful shutdown failed", "err", err)
 	}
 	rec.Stop()

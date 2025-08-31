@@ -94,10 +94,11 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 				})
 				return
 			}
-			if _, err := ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
+			_, err := ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
 				dl.GID = gid
 				return nil
-			}); err != nil {
+			})
+			if err != nil {
 				_, _ = ds.repo.Update(context.Background(), d.ID, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
@@ -127,10 +128,11 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 	}
 
 	// Persist desiredStatus (so callers see intent even if the actual action fails).
-	if _, err := ds.repo.Update(ctx, id, func(dl *data.Download) error {
+	_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 		dl.DesiredStatus = status
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -148,10 +150,11 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 				})
 				return nil, derr
 			}
-			if _, err := ds.repo.Update(ctx, id, func(dl *data.Download) error {
+			_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 				dl.GID = gid
 				return nil
-			}); err != nil {
+			})
+			if err != nil {
 				_, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
@@ -159,17 +162,19 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 				return nil, err
 			}
 		}
-		if _, err := ds.repo.Update(ctx, id, func(dl *data.Download) error {
+		_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 			dl.Status = data.StatusActive
 			return nil
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
 
 	case data.StatusPaused:
 		// If no GID, nothing to pause (treat as success: desired=Paused, status=Paused).
 		if cur.GID != "" {
-			if derr := ds.dlr.Pause(ctx, cur); derr != nil {
+			derr := ds.dlr.Pause(ctx, cur)
+			if derr != nil {
 				_, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
@@ -177,17 +182,19 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 				return nil, derr
 			}
 		}
-		if _, err := ds.repo.Update(ctx, id, func(dl *data.Download) error {
+		_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 			dl.Status = data.StatusPaused
 			return nil
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
 
 	case data.StatusCancelled:
 		// Try to cancel if we have a GID; treat "not found" as success for idempotency.
 		if cur.GID != "" {
-			if derr := ds.dlr.Cancel(ctx, cur); derr != nil && !isDownloaderNotFound(derr) {
+			derr := ds.dlr.Cancel(ctx, cur)
+			if derr != nil && !isDownloaderNotFound(derr) {
 				_, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 					dl.Status = data.StatusError
 					return nil
@@ -195,11 +202,12 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 				return nil, derr
 			}
 		}
-		if _, err := ds.repo.Update(ctx, id, func(dl *data.Download) error {
+		_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
 			dl.GID = ""
 			dl.Status = data.StatusCancelled
 			return nil
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
 	}

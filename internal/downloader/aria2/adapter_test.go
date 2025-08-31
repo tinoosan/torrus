@@ -37,7 +37,8 @@ func TestAdapterStart(t *testing.T) {
 		rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			b, _ := io.ReadAll(r.Body)
 			var req rpcReq
-			if err := json.Unmarshal(b, &req); err != nil {
+			err := json.Unmarshal(b, &req)
+			if err != nil {
 				t.Fatalf("decode request: %v", err)
 			}
 			if req.Method != "aria2.addUri" {
@@ -77,7 +78,8 @@ func TestAdapterStart(t *testing.T) {
 		rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			b, _ := io.ReadAll(r.Body)
 			var req rpcReq
-			if err := json.Unmarshal(b, &req); err != nil {
+			err := json.Unmarshal(b, &req)
+			if err != nil {
 				t.Fatalf("decode request: %v", err)
 			}
 			if req.Method != "aria2.addUri" {
@@ -123,7 +125,8 @@ func TestAdapterPauseCancel(t *testing.T) {
 			rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				b, _ := io.ReadAll(r.Body)
 				var req rpcReq
-				if err := json.Unmarshal(b, &req); err != nil {
+				err := json.Unmarshal(b, &req)
+				if err != nil {
 					t.Fatalf("decode request: %v", err)
 				}
 				if req.Method != m.rpcMethod {
@@ -146,7 +149,8 @@ func TestAdapterPauseCancel(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
 			})
 			a := newTestAdapter(t, "secret", rt)
-			if err := m.call(context.Background(), a, dl); err != nil {
+			err := m.call(context.Background(), a, dl)
+			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
@@ -159,7 +163,8 @@ func TestAdapterPauseCancel(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
 			})
 			a := newTestAdapter(t, "", rt)
-			if err := m.call(context.Background(), a, dl); err == nil {
+			err := m.call(context.Background(), a, dl)
+			if err == nil {
 				t.Fatalf("expected error")
 			}
 		})
