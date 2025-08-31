@@ -20,12 +20,13 @@ type Download interface {
 }
 
 var (
-	// AllowedStatuses enumerates statuses that callers may request.
-	AllowedStatuses = map[data.DownloadStatus]bool{
-		data.StatusActive:    true,
-		data.StatusPaused:    true,
-		data.StatusCancelled: true,
-	}
+    // AllowedStatuses enumerates statuses that callers may request.
+    AllowedStatuses = map[data.DownloadStatus]bool{
+        data.StatusActive:    true,
+        data.StatusResume:    true,
+        data.StatusPaused:    true,
+        data.StatusCancelled: true,
+    }
 )
 
 // download implements the Download service.
@@ -114,12 +115,12 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 // UpdateDesiredStatus changes the desired state of a download and performs the
 // necessary side effects to reach it.
 func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
-	// Guard invalid desired statuses up front (service-level policy).
-	switch status {
-	case data.StatusActive, data.StatusPaused, data.StatusCancelled:
-	default:
-		return nil, data.ErrBadStatus
-	}
+    // Guard invalid desired statuses up front (service-level policy).
+    switch status {
+    case data.StatusActive, data.StatusResume, data.StatusPaused, data.StatusCancelled:
+    default:
+        return nil, data.ErrBadStatus
+    }
 
 	// Always fetch the latest state first.
 	cur, err := ds.repo.Get(ctx, id)
@@ -136,39 +137,79 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 		return nil, err
 	}
 
-	switch status {
-	case data.StatusActive:
-		// Start if we don't have a GID yet (fresh start).
-		// If we *do* have a GID, keep it simple for MVP: just set Status=Active
-		// and return (future: introduce Resume in downloader and call it here).
-		if cur.GID == "" {
-			gid, derr := ds.dlr.Start(ctx, cur) // uses Source + TargetPath from cur
-			if derr != nil {
-				_, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
-					dl.Status = data.StatusError
-					return nil
-				})
-				return nil, derr
-			}
-			_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
-				dl.GID = gid
-				return nil
-			})
-			if err != nil {
-				_, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
-					dl.Status = data.StatusError
-					return nil
-				})
-				return nil, err
-			}
-		}
-		_, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
-			dl.Status = data.StatusActive
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+    switch status {
+    case data.StatusActive:
+        // Start if we don't have a GID yet (fresh start).
+        // If we *do* have a GID, keep it simple for MVP: just set Status=Active
+        // and return (future: introduce Resume in downloader and call it here).
+        if cur.GID == "" {
+            gid, derr := ds.dlr.Start(ctx, cur) // uses Source + TargetPath from cur
+            if derr != nil {
+                _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return nil, derr
+            }
+            _, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                dl.GID = gid
+                return nil
+            })
+            if err != nil {
+                _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return nil, err
+            }
+        }
+        _, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+            dl.Status = data.StatusActive
+            return nil
+        })
+        if err != nil {
+            return nil, err
+        }
+
+    case data.StatusResume:
+        // If we have a GID, call Resume (unpause). If not, fall back to Start.
+        if cur.GID != "" {
+            derr := ds.dlr.Resume(ctx, cur)
+            if derr != nil {
+                _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return nil, derr
+            }
+        } else {
+            gid, derr := ds.dlr.Start(ctx, cur)
+            if derr != nil {
+                _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return nil, derr
+            }
+            _, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                dl.GID = gid
+                return nil
+            })
+            if err != nil {
+                _, _ = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+                    dl.Status = data.StatusError
+                    return nil
+                })
+                return nil, err
+            }
+        }
+        _, err = ds.repo.Update(ctx, id, func(dl *data.Download) error {
+            dl.Status = data.StatusActive
+            return nil
+        })
+        if err != nil {
+            return nil, err
+        }
 
 	case data.StatusPaused:
 		// If no GID, nothing to pause (treat as success: desired=Paused, status=Paused).

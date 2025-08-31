@@ -110,14 +110,15 @@ func TestAdapterStart(t *testing.T) {
 }
 
 func TestAdapterPauseCancel(t *testing.T) {
-	methods := []struct {
-		name      string
-		rpcMethod string
-		call      func(context.Context, *Adapter, *data.Download) error
-	}{
-		{"Pause", "aria2.pause", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Pause(ctx, d) }},
-		{"Cancel", "aria2.remove", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Cancel(ctx, d) }},
-	}
+    methods := []struct {
+        name      string
+        rpcMethod string
+        call      func(context.Context, *Adapter, *data.Download) error
+    }{
+        {"Pause", "aria2.pause", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Pause(ctx, d) }},
+        {"Resume", "aria2.unpause", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Resume(ctx, d) }},
+        {"Cancel", "aria2.remove", func(ctx context.Context, a *Adapter, d *data.Download) error { return a.Cancel(ctx, d) }},
+    }
 
 	for _, m := range methods {
 		t.Run(m.name+" success", func(t *testing.T) {

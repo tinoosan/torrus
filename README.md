@@ -75,7 +75,7 @@ Path parameters:
 - `id` — numeric identifier  
 Request body:
 ```json
-{ "desiredStatus": "Active|Paused|Cancelled" }
+{ "desiredStatus": "Active|Resume|Paused|Cancelled" }
 ```
 Responds with `200 OK` and the updated [Download](#download-object).
 

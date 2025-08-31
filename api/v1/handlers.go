@@ -152,8 +152,8 @@ func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request
 			return
 		case data.ErrBadStatus:
 			markErr(w, err)
-			http.Error(w, "Invalid desiredStatus (allowed: Active|Paused|Cancelled)", http.StatusBadRequest)
-			return
+            http.Error(w, "Invalid desiredStatus (allowed: Active|Resume|Paused|Cancelled)", http.StatusBadRequest)
+            return
 		default:
 			markErr(w, err)
 			http.Error(w, "failed to update", http.StatusInternalServerError)
