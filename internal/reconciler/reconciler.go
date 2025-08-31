@@ -20,6 +20,8 @@ type Reconciler struct {
 	wg   sync.WaitGroup
 }
 
+// New creates a Reconciler that processes downloader events and mutates the
+// repository accordingly.
 func New(log *slog.Logger, repo repo.DownloadRepo, events <-chan downloader.Event) *Reconciler {
 	if log == nil {
 		log = slog.Default()
