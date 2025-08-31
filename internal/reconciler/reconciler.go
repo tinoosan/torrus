@@ -101,15 +101,15 @@ func (r *Reconciler) handle(e downloader.Event) {
 		return
 	}
 
-	if err := r.repo.SetStatus(context.Background(), e.ID, status); err != nil {
-		r.log.Error("set status", "id", e.ID, "status", status, "err", err)
-		return
-	}
-
-	if checkTerminal {
-		if err := r.repo.ClearGID(context.Background(), e.ID); err != nil {
-			r.log.Error("clear gid", "id", e.ID, "err", err)
+	if _, err := r.repo.Update(context.Background(), e.ID, func(dl *data.Download) error {
+		dl.Status = status
+		if checkTerminal {
+			dl.GID = ""
 		}
+		return nil
+	}); err != nil {
+		r.log.Error("update", "id", e.ID, "status", status, "err", err)
+		return
 	}
 	r.log.Info("reconciled event", "id", e.ID, "type", e.Type)
 }

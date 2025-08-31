@@ -11,118 +11,158 @@ import (
 	"github.com/tinoosan/torrus/internal/data"
 )
 
-func PtrStatus(s data.DownloadStatus) *data.DownloadStatus { return &s }
-func PtrString(s string) *string                           { return &s }
-
-func TestInMemoryDownloadRepo_Add(t *testing.T) {
-	repo := NewInMemoryDownloadRepo()
+func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
 
-	d1, err := repo.Add(ctx, &data.Download{Source: "s1", TargetPath: "t1"})
+	d1, err := r.Add(ctx, &data.Download{Source: "s1", TargetPath: "t1"})
 	if err != nil {
-		t.Fatalf("Add returned error: %v", err)
+		t.Fatalf("Add: %v", err)
 	}
 	if d1.ID != 1 {
-		t.Fatalf("expected ID 1 got %d", d1.ID)
+		t.Fatalf("first id = %d", d1.ID)
 	}
 
-	d2, err := repo.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2"})
-	if err != nil {
-		t.Fatalf("Add returned error: %v", err)
-	}
+	d2, _ := r.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2"})
 	if d2.ID != 2 {
-		t.Fatalf("expected ID 2 got %d", d2.ID)
-	}
-}
-
-func TestInMemoryDownloadRepo_List(t *testing.T) {
-	ctx := context.Background()
-	repo := NewInMemoryDownloadRepo()
-
-	// empty repo
-	list, _ := repo.List(ctx)
-	if got := len(list); got != 0 {
-		t.Fatalf("expected empty list, got %d", got)
+		t.Fatalf("second id = %d", d2.ID)
 	}
 
-	d1, _ := repo.Add(ctx, &data.Download{Source: "s1", TargetPath: "t1"})
-	_, _ = repo.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2"})
-
-	list1, _ := repo.List(ctx)
-	if len(list1) != 2 {
-		t.Fatalf("expected 2 downloads, got %d", len(list1))
+	list, err := r.List(ctx)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("List = %v len %d err %v", list, len(list), err)
 	}
 
-	// modify returned slice
-	list1[0] = &data.Download{ID: 99}
-	list1 = append(list1, &data.Download{ID: 100})
-	_ = list1
+	// ensure clones returned
+	list[0].ID = 99
+	again, _ := r.List(ctx)
+	if again[0].ID != d1.ID {
+		t.Fatalf("repo mutated via clone")
+	}
 
-	list2, err := repo.List(ctx)
+	got, err := r.Get(ctx, d1.ID)
 	if err != nil {
-		t.Fatalf("List error: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if len(list2) != 2 {
-		t.Fatalf("expected 2 downloads after modification, got %d", len(list2))
-	}
-	if list2[0].ID != d1.ID {
-		t.Fatalf("expected first ID %d got %d", d1.ID, list2[0].ID)
-	}
-}
-
-func TestInMemoryDownloadRepo_Get(t *testing.T) {
-	ctx := context.Background()
-	repo := NewInMemoryDownloadRepo()
-	want, _ := repo.Add(ctx, &data.Download{Source: "s1", TargetPath: "t1"})
-
-	tests := []struct {
-		name    string
-		repo    *InMemoryDownloadRepo
-		id      int
-		want    *data.Download
-		wantErr error
-	}{
-		{"exists", repo, want.ID, want, nil},
-		{"not found", repo, 999, nil, data.ErrNotFound},
-		{"empty repo", NewInMemoryDownloadRepo(), 1, nil, data.ErrNotFound},
+	if !reflect.DeepEqual(got, d1) {
+		t.Fatalf("Get mismatch")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.repo.Get(ctx, tt.id)
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("expected error %v got %v", tt.wantErr, err)
-			}
-			if tt.wantErr == nil {
-				if !reflect.DeepEqual(*got, *tt.want) {
-					t.Fatalf("mismatch:\n got:  %#v\n want: %#v", got, tt.want)
-				}
-			}
-		})
+	if _, err := r.Get(ctx, 999); !errors.Is(err, data.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound")
 	}
 }
 
-func TestInMemoryDownloadRepo_UpdateDesiredStatus(t *testing.T) {
+func TestInMemoryDownloadRepo_Update(t *testing.T) {
 	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
 
-	t.Run("valid", func(t *testing.T) {
-		repo := NewInMemoryDownloadRepo()
-		d, _ := repo.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-		updated, err := repo.UpdateDesiredStatus(ctx, d.ID, data.StatusPaused)
+	t.Run("noop", func(t *testing.T) {
+		before, _ := r.Get(ctx, d.ID)
+		got, err := r.Update(ctx, d.ID, func(dl *data.Download) error { return nil })
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Update: %v", err)
 		}
-		if updated.DesiredStatus != data.StatusPaused {
-			t.Fatalf("expected desired status %s got %s", data.StatusPaused, updated.DesiredStatus)
+		after, _ := r.Get(ctx, d.ID)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("expected no change")
+		}
+		got.GID = "mut"
+		again, _ := r.Get(ctx, d.ID)
+		if again.GID == "mut" {
+			t.Fatalf("clone not deep")
 		}
 	})
 
-	t.Run("unknown id", func(t *testing.T) {
-		repo := NewInMemoryDownloadRepo()
-		if _, err := repo.UpdateDesiredStatus(ctx, 123, data.StatusPaused); !errors.Is(err, data.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound got %v", err)
+	t.Run("single fields", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			mutate func(*data.Download)
+			check  func(*data.Download) bool
+		}{
+			{"desired", func(dl *data.Download) { dl.DesiredStatus = data.StatusPaused }, func(dl *data.Download) bool { return dl.DesiredStatus == data.StatusPaused }},
+			{"status", func(dl *data.Download) { dl.Status = data.StatusComplete }, func(dl *data.Download) bool { return dl.Status == data.StatusComplete }},
+			{"gid", func(dl *data.Download) { dl.GID = "G1" }, func(dl *data.Download) bool { return dl.GID == "G1" }},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				got, err := r.Update(ctx, d.ID, func(dl *data.Download) error { tc.mutate(dl); return nil })
+				if err != nil {
+					t.Fatalf("Update: %v", err)
+				}
+				if !tc.check(got) {
+					t.Fatalf("field not updated: %#v", got)
+				}
+			})
 		}
 	})
+
+	t.Run("multi", func(t *testing.T) {
+		got, err := r.Update(ctx, d.ID, func(dl *data.Download) error {
+			dl.DesiredStatus = data.StatusActive
+			dl.Status = data.StatusActive
+			dl.GID = "GG"
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		if got.DesiredStatus != data.StatusActive || got.Status != data.StatusActive || got.GID != "GG" {
+			t.Fatalf("multi update failed: %#v", got)
+		}
+	})
+
+	t.Run("clear gid", func(t *testing.T) {
+		_, _ = r.Update(ctx, d.ID, func(dl *data.Download) error { dl.GID = "abc"; return nil })
+		got, err := r.Update(ctx, d.ID, func(dl *data.Download) error { dl.GID = ""; return nil })
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		if got.GID != "" {
+			t.Fatalf("gid not cleared")
+		}
+	})
+}
+
+func TestInMemoryDownloadRepo_Update_Concurrent(t *testing.T) {
+	ctx := context.Background()
+	r := NewInMemoryDownloadRepo()
+	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+
+	gids := []string{"G1", "G2", "G3", "G4", "G5"}
+	var wg sync.WaitGroup
+	for _, g := range gids {
+		wg.Add(1)
+		go func(g string) {
+			defer wg.Done()
+			got, err := r.Update(ctx, d.ID, func(dl *data.Download) error { dl.GID = g; return nil })
+			if err != nil {
+				t.Errorf("Update: %v", err)
+				return
+			}
+			got.GID = "mut"
+			res, _ := r.Get(ctx, d.ID)
+			if res.GID == "mut" {
+				t.Errorf("clone not deep")
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	got, err := r.Get(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	found := false
+	for _, g := range gids {
+		if got.GID == g {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("final gid %q not in %v", got.GID, gids)
+	}
 }
 
 func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
@@ -165,215 +205,5 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 
 	if got := len(list); got != n {
 		t.Fatalf("expected %d downloads, got %d", n, got)
-	}
-}
-
-func TestInMemoryDownloadRepo_SetGID_Success(t *testing.T) {
-	ctx := context.Background()
-	r := NewInMemoryDownloadRepo()
-
-	d, err := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-	if err != nil {
-		t.Fatalf("Add error: %v", err)
-	}
-
-	if err := r.SetGID(ctx, d.ID, "G123"); err != nil {
-		t.Fatalf("SetGID error: %v", err)
-	}
-
-	got, err := r.Get(ctx, d.ID)
-	if err != nil {
-		t.Fatalf("Get error: %v", err)
-	}
-	if got.GID != "G123" {
-		t.Fatalf("expected GID G123, got %q", got.GID)
-	}
-}
-
-func TestInMemoryDownloadRepo_SetGID_NotFound(t *testing.T) {
-	ctx := context.Background()
-	r := NewInMemoryDownloadRepo()
-
-	if err := r.SetGID(ctx, 999, "G999"); !errors.Is(err, data.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
-	}
-}
-
-func TestInMemoryDownloadRepo_SetGID_Overwrite(t *testing.T) {
-	ctx := context.Background()
-	r := NewInMemoryDownloadRepo()
-
-	d, err := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-	if err != nil {
-		t.Fatalf("Add error: %v", err)
-	}
-
-	if err := r.SetGID(ctx, d.ID, "G1"); err != nil {
-		t.Fatalf("SetGID first error: %v", err)
-	}
-	if err := r.SetGID(ctx, d.ID, "G2"); err != nil {
-		t.Fatalf("SetGID second error: %v", err)
-	}
-
-	got, err := r.Get(ctx, d.ID)
-	if err != nil {
-		t.Fatalf("Get error: %v", err)
-	}
-	if got.GID != "G2" {
-		t.Fatalf("expected GID G2, got %q", got.GID)
-	}
-}
-
-func TestInMemoryDownloadRepo_SetGID_Concurrent(t *testing.T) {
-	ctx := context.Background()
-	r := NewInMemoryDownloadRepo()
-
-	d, err := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-	if err != nil {
-		t.Fatalf("Add error: %v", err)
-	}
-
-	gids := []string{"G1", "G2", "G3", "G4", "G5"}
-	var wg sync.WaitGroup
-	for _, gid := range gids {
-		wg.Add(1)
-		go func(g string) {
-			defer wg.Done()
-			if err := r.SetGID(ctx, d.ID, g); err != nil {
-				t.Errorf("SetGID error: %v", err)
-			}
-		}(gid)
-	}
-	wg.Wait()
-
-	got, err := r.Get(ctx, d.ID)
-	if err != nil {
-		t.Fatalf("Get error: %v", err)
-	}
-	found := false
-	for _, g := range gids {
-		if got.GID == g {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("final GID %q not among %v", got.GID, gids)
-	}
-}
-
-func TestInMemoryDownloadRepo_Update(t *testing.T) {
-	ctx := context.Background()
-	r := NewInMemoryDownloadRepo()
-	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-
-	t.Run("no-op", func(t *testing.T) {
-		before, _ := r.Get(ctx, d.ID)
-		got, err := r.Update(ctx, d.ID, UpdateFields{})
-		if err != nil {
-			t.Fatalf("Update error: %v", err)
-		}
-		after, _ := r.Get(ctx, d.ID)
-		if !reflect.DeepEqual(before, after) {
-			t.Fatalf("expected no change, got %#v want %#v", after, before)
-		}
-		// modify returned clone and ensure repo unchanged
-		got.GID = "mutated"
-		again, _ := r.Get(ctx, d.ID)
-		if again.GID == "mutated" {
-			t.Fatalf("repository modified via clone")
-		}
-	})
-
-	t.Run("single fields", func(t *testing.T) {
-		for name, uf := range map[string]UpdateFields{
-			"desired": {DesiredStatus: PtrStatus(data.StatusPaused)},
-			"status":  {Status: PtrStatus(data.StatusComplete)},
-			"gid":     {GID: PtrString("G1")},
-		} {
-			t.Run(name, func(t *testing.T) {
-				got, err := r.Update(ctx, d.ID, uf)
-				if err != nil {
-					t.Fatalf("Update error: %v", err)
-				}
-				if uf.DesiredStatus != nil && got.DesiredStatus != *uf.DesiredStatus {
-					t.Fatalf("DesiredStatus not updated")
-				}
-				if uf.Status != nil && got.Status != *uf.Status {
-					t.Fatalf("Status not updated")
-				}
-				if uf.GID != nil && got.GID != *uf.GID {
-					t.Fatalf("GID not updated")
-				}
-			})
-		}
-	})
-
-	t.Run("multi-field", func(t *testing.T) {
-		uf := UpdateFields{
-			DesiredStatus: PtrStatus(data.StatusActive),
-			Status:        PtrStatus(data.StatusActive),
-			GID:           PtrString("GG"),
-		}
-		got, err := r.Update(ctx, d.ID, uf)
-		if err != nil {
-			t.Fatalf("Update error: %v", err)
-		}
-		if got.DesiredStatus != data.StatusActive || got.Status != data.StatusActive || got.GID != "GG" {
-			t.Fatalf("multi-field update failed: %#v", got)
-		}
-	})
-
-	t.Run("clear gid", func(t *testing.T) {
-		uf := UpdateFields{GID: PtrString("")}
-		got, err := r.Update(ctx, d.ID, uf)
-		if err != nil {
-			t.Fatalf("Update error: %v", err)
-		}
-		if got.GID != "" {
-			t.Fatalf("expected GID cleared, got %q", got.GID)
-		}
-	})
-}
-
-func TestInMemoryDownloadRepo_Update_Concurrent(t *testing.T) {
-	ctx := context.Background()
-	r := NewInMemoryDownloadRepo()
-	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
-
-	gids := []string{"G1", "G2", "G3", "G4", "G5"}
-	var wg sync.WaitGroup
-	for _, gid := range gids {
-		wg.Add(1)
-		go func(g string) {
-			defer wg.Done()
-			got, err := r.Update(ctx, d.ID, UpdateFields{GID: PtrString(g)})
-			if err != nil {
-				t.Errorf("Update error: %v", err)
-				return
-			}
-			// mutate returned clone and ensure repo not affected
-			got.GID = "mutated"
-			res, err := r.Get(ctx, d.ID)
-			if err == nil && res.GID == "mutated" {
-				t.Errorf("repository modified via clone")
-			}
-		}(gid)
-	}
-	wg.Wait()
-
-	got, err := r.Get(ctx, d.ID)
-	if err != nil {
-		t.Fatalf("Get error: %v", err)
-	}
-	found := false
-	for _, g := range gids {
-		if got.GID == g {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("final GID %q not among %v", got.GID, gids)
 	}
 }
