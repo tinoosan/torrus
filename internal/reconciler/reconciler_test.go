@@ -42,7 +42,7 @@ func TestHandle(t *testing.T) {
 	}
 
 	// reset gid and test failure case
-	if err := rpo.SetGID(context.Background(), dl.ID, "g2"); err != nil {
+	if _, err := rpo.Update(context.Background(), dl.ID, func(d *data.Download) error { d.GID = "g2"; return nil }); err != nil {
 		t.Fatalf("set gid: %v", err)
 	}
 	r.handle(downloader.Event{ID: dl.ID, GID: "g2", Type: downloader.EventFailed})
