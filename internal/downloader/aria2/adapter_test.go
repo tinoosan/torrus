@@ -624,6 +624,20 @@ func TestAdapterResumeConflictMapsErrConflict(t *testing.T) {
 	}
 }
 
+
+func TestAdapterCancelNotFoundMapsErrNotFound(t *testing.T) {
+	dl := &data.Download{GID: "gid-missing"}
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Error: &rpcError{Code: 1, Message: "GID not found"}})
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+	})
+	a := newTestAdapter(t, "", rt)
+	err := a.Cancel(context.Background(), dl)
+	if !errors.Is(err, downloader.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestAdapterHandleNotification(t *testing.T) {
 	events := make(chan downloader.Event, 2)
 	rep := downloader.NewChanReporter(events)
