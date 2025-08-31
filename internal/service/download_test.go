@@ -150,3 +150,30 @@ func TestUpdateDesiredStatus(t *testing.T) {
 		}
 	})
 }
+
+func TestServiceAdd_Idempotent(t *testing.T) {
+    ctx := context.Background()
+    r := repo.NewInMemoryDownloadRepo()
+    svc := NewDownload(r, &stubDownloader{})
+
+    d := &data.Download{Source: "  s  ", TargetPath: " /x/y/../z "}
+    got1, created1, err := svc.Add(ctx, d)
+    if err != nil || !created1 {
+        t.Fatalf("first add err=%v created=%v", err, created1)
+    }
+
+    ddup := &data.Download{Source: "s", TargetPath: "/x/z"}
+    got2, created2, err := svc.Add(ctx, ddup)
+    if err != nil || created2 {
+        t.Fatalf("second add err=%v created=%v", err, created2)
+    }
+    if got1.ID != got2.ID {
+        t.Fatalf("expected same id, got %d vs %d", got1.ID, got2.ID)
+    }
+
+    // Validation failures do not touch repo
+    _, _, err = svc.Add(ctx, &data.Download{Source: "", TargetPath: "/x"})
+    if !errors.Is(err, data.ErrInvalidSource) {
+        t.Fatalf("expected ErrInvalidSource, got %v", err)
+    }
+}
