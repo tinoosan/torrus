@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
 	"github.com/tinoosan/torrus/internal/data"
@@ -18,11 +19,14 @@ import (
 type Adapter struct {
 	cl  *aria2.Client
 	rep downloader.Reporter
+
+	mu      sync.RWMutex
+	gidToID map[string]int
 }
 
 // NewAdapter creates a new Adapter using the provided aria2 client and reporter.
 func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
-	return &Adapter{cl: cl, rep: rep}
+	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]int)}
 }
 
 var _ downloader.Downloader = (*Adapter)(nil)
@@ -122,6 +126,9 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	if a.rep != nil {
 		a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventStart})
 	}
+	a.mu.Lock()
+	a.gidToID[gid] = dl.ID
+	a.mu.Unlock()
 	return gid, nil
 }
 
@@ -139,8 +146,13 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	params := append(a.tokenParam(), dl.GID)
 	_, err := a.call(ctx, "aria2.remove", params)
-	if err == nil && a.rep != nil {
-		a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventCancelled})
+	if err == nil {
+		if a.rep != nil {
+			a.rep.Report(downloader.Event{ID: dl.ID, GID: dl.GID, Type: downloader.EventCancelled})
+		}
+		a.mu.Lock()
+		delete(a.gidToID, dl.GID)
+		a.mu.Unlock()
 	}
 	return err
 }
@@ -165,5 +177,58 @@ func (a *Adapter) EmitFailed(id int, gid string) {
 func (a *Adapter) EmitProgress(id int, gid string, p downloader.Progress) {
 	if a.rep != nil {
 		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventProgress, Progress: &p})
+	}
+}
+
+// Run subscribes to aria2 notifications and emits corresponding downloader events.
+func (a *Adapter) Run(ctx context.Context) {
+	ch, err := a.cl.Notifications(ctx)
+	if err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case n, ok := <-ch:
+			if !ok {
+				return
+			}
+			a.handleNotification(n)
+		}
+	}
+}
+
+func (a *Adapter) handleNotification(n aria2.Notification) {
+	for _, p := range n.Params {
+		a.mu.RLock()
+		id, ok := a.gidToID[p.GID]
+		a.mu.RUnlock()
+		if !ok {
+			continue
+		}
+		switch n.Method {
+		case "aria2.onDownloadComplete":
+			a.EmitComplete(id, p.GID)
+			a.mu.Lock()
+			delete(a.gidToID, p.GID)
+			a.mu.Unlock()
+		case "aria2.onDownloadError":
+			a.EmitFailed(id, p.GID)
+			a.mu.Lock()
+			delete(a.gidToID, p.GID)
+			a.mu.Unlock()
+		case "aria2.onDownloadPause":
+			if a.rep != nil {
+				a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventPaused})
+			}
+		case "aria2.onDownloadStop":
+			if a.rep != nil {
+				a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventCancelled})
+			}
+			a.mu.Lock()
+			delete(a.gidToID, p.GID)
+			a.mu.Unlock()
+		}
 	}
 }
