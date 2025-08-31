@@ -21,8 +21,5 @@ type DownloadReader interface {
 // DownloadWriter defines write operations for downloads.
 type DownloadWriter interface {
 	Add(ctx context.Context, download *data.Download) (*data.Download, error)
-	UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
-	SetStatus(ctx context.Context, id int, status data.DownloadStatus) error
-	SetGID(ctx context.Context, id int, gid string) error
-	ClearGID(ctx context.Context, id int) error
+	Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error)
 }

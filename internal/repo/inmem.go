@@ -52,52 +52,25 @@ func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data
 	return d.Clone(), nil
 }
 
-// UpdateDesiredStatus sets the desired status for a download.
-func (r *InMemoryDownloadRepo) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
+// Update applies the mutate function to the download with the given ID and
+// returns a deep clone of the updated entity. mutate is executed while holding
+// the repo lock to ensure atomicity.
+func (r *InMemoryDownloadRepo) Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	dl, err := r.findByID(id)
 	if err != nil {
 		return nil, err
 	}
-	dl.DesiredStatus = status
+
+	if mutate != nil {
+		if err := mutate(dl); err != nil {
+			return nil, err
+		}
+	}
+
 	return dl.Clone(), nil
-}
-
-// SetStatus updates the current status of a download.
-func (r *InMemoryDownloadRepo) SetStatus(ctx context.Context, id int, status data.DownloadStatus) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	dl, err := r.findByID(id)
-	if err != nil {
-		return err
-	}
-	dl.Status = status
-	return nil
-}
-
-// SetGID associates a downloader GID with the download.
-func (r *InMemoryDownloadRepo) SetGID(ctx context.Context, id int, gid string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	dl, err := r.findByID(id)
-	if err != nil {
-		return err
-	}
-	dl.GID = gid
-	return nil
-}
-
-// ClearGID removes any downloader GID from the download.
-func (r *InMemoryDownloadRepo) ClearGID(ctx context.Context, id int) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	dl, err := r.findByID(id)
-	if err != nil {
-		return err
-	}
-	dl.GID = ""
-	return nil
 }
 
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
