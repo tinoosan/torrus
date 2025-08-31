@@ -107,7 +107,6 @@ func main() {
 			dlr = downloader.NewNoopDownloader()
 		} else {
 			a := aria2dl.NewAdapter(aria2Client, rep)
-			go a.Run(context.Background())
 			dlr = a
 		}
 	default:
@@ -118,6 +117,11 @@ func main() {
 
 	rec := reconciler.New(logger, downloadRepo, events)
 	rec.Run()
+
+	// If the downloader emits events, launch its event loop.
+	if src, ok := dlr.(downloader.EventSource); ok {
+		go src.Run(context.Background())
+	}
 
 	r := router.New(logger, downloadSvc)
 
