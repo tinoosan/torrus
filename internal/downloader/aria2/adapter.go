@@ -143,6 +143,13 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 	return err
 }
 
+// Resume: aria2.unpause([token?, gid])
+func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
+    params := append(a.tokenParam(), dl.GID)
+    _, err := a.call(ctx, "aria2.unpause", params)
+    return err
+}
+
 // Cancel: aria2.remove([token?, gid])
 func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	params := append(a.tokenParam(), dl.GID)

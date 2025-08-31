@@ -91,13 +91,13 @@ func (r *Reconciler) handle(e downloader.Event) {
 	case downloader.EventFailed:
 		status = data.StatusError
 		checkTerminal = true
-	case downloader.EventProgress:
-		if e.Progress != nil {
-			r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total)
-		} else {
-			r.log.Info("progress event", "id", e.ID)
-		}
-		return
+    case downloader.EventProgress:
+        if e.Progress != nil {
+            r.log.Info("progress event", "id", e.ID, "completed", e.Progress.Completed, "total", e.Progress.Total, "speed", e.Progress.Speed)
+        } else {
+            r.log.Info("progress event", "id", e.ID)
+        }
+        return
 	default:
 		r.log.Warn("unknown event type", "id", e.ID, "type", e.Type)
 		return
