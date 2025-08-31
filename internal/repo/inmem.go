@@ -71,6 +71,7 @@ func (r *InMemoryDownloadRepo) Update(ctx context.Context, id int, mutate func(*
 	}
 
 	return dl.Clone(), nil
+
 }
 
 func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
