@@ -106,6 +106,20 @@ func (r *Reconciler) handle(e downloader.Event) {
                 r.log.Info("updated meta", "id", e.ID, "name", *e.Meta.Name)
             }
         }
+        if e.Meta.Files != nil {
+            // Persist files list (read-only field populated by downloader)
+            _, err := r.repo.Update(r.ctx, e.ID, func(dl *data.Download) error {
+                // Replace the slice to reflect latest snapshot from downloader
+                dl.Files = make([]data.DownloadFile, len(*e.Meta.Files))
+                copy(dl.Files, *e.Meta.Files)
+                return nil
+            })
+            if err != nil {
+                r.log.Error("update files", "id", e.ID, "err", err)
+            } else {
+                r.log.Info("updated files", "id", e.ID, "count", len(*e.Meta.Files))
+            }
+        }
         return
     case downloader.EventProgress:
         if e.Progress != nil {

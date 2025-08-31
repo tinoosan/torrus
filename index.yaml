@@ -182,6 +182,12 @@ components:
           description: Human-friendly display name provided by downloader
           readOnly: true
           example: "Some.Movie.2024.1080p.mkv"
+        files:
+          type: array
+          description: Read-only list of files in this download (when available)
+          items:
+            $ref: "#/components/schemas/DownloadFile"
+          readOnly: true
         status:
           $ref: "#/components/schemas/DownloadStatus"
           readOnly: true
@@ -225,6 +231,25 @@ components:
           enum: ["Active", "Resume", "Paused", "Cancelled"]
       required:
         - desiredStatus
+
+    DownloadFile:
+      type: object
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+          description: Relative path or filename
+          example: "Show.S01/E01.mkv"
+        length:
+          type: integer
+          format: int64
+          description: File size in bytes (if known)
+          example: 1048576
+        completed:
+          type: integer
+          format: int64
+          description: Bytes completed for this file (if known)
+          example: 524288
 
     DownloadStatus:
       type: string
