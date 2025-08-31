@@ -175,10 +175,10 @@ func TestAdapterPauseCancel(t *testing.T) {
 func TestAdapterHandleNotification(t *testing.T) {
 	events := make(chan downloader.Event, 2)
 	rep := downloader.NewChanReporter(events)
-	a := &Adapter{rep: rep, gidToID: map[string]int{"g1": 1, "g2": 2}}
+    a := &Adapter{rep: rep, gidToID: map[string]int{"g1": 1, "g2": 2}, activeGIDs: map[string]struct{}{}, lastProg: map[string]downloader.Progress{}}
 
 	// Complete event
-	a.handleNotification(aria2.Notification{Method: "aria2.onDownloadComplete", Params: []aria2.NotificationEvent{{GID: "g1"}}})
+    a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadComplete", Params: []aria2.NotificationEvent{{GID: "g1"}}})
 	ev := <-events
 	if ev.Type != downloader.EventComplete || ev.ID != 1 || ev.GID != "g1" {
 		t.Fatalf("unexpected event %#v", ev)
@@ -188,7 +188,7 @@ func TestAdapterHandleNotification(t *testing.T) {
 	}
 
 	// Error event
-	a.handleNotification(aria2.Notification{Method: "aria2.onDownloadError", Params: []aria2.NotificationEvent{{GID: "g2"}}})
+    a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadError", Params: []aria2.NotificationEvent{{GID: "g2"}}})
 	ev = <-events
 	if ev.Type != downloader.EventFailed || ev.ID != 2 || ev.GID != "g2" {
 		t.Fatalf("unexpected event %#v", ev)
