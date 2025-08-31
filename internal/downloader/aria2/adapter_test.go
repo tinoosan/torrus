@@ -559,3 +559,88 @@ func TestAdapterHandleNotification(t *testing.T) {
 		t.Fatalf("unexpected event %#v", ev)
 	}
 }
+
+func TestAdapterMetadataCompleteTriggersFollowedBySwap(t *testing.T) {
+	// Start with a magnet where immediate followedBy is empty; later a completion
+	// notification for the metadata gid should cause a swap to the real gid.
+	dl := &data.Download{ID: 33, Source: "magnet:?xt=urn:btih:xyz&dn=Title", TargetPath: "/tmp"}
+	call := 0
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		call++
+		b, _ := io.ReadAll(r.Body)
+		var req rpcReq
+		if err := json.Unmarshal(b, &req); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		switch call {
+		case 1:
+			if req.Method != "aria2.addUri" {
+				t.Fatalf("call1 method=%s", req.Method)
+			}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"metaG"`)})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 2:
+			if req.Method != "aria2.tellStatus" {
+				t.Fatalf("call2 method=%s", req.Method)
+			}
+			// No followedBy yet
+			result := map[string]any{}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 3:
+			if req.Method != "aria2.getFiles" {
+				t.Fatalf("call3 method=%s", req.Method)
+			}
+			// No files yet
+			result := []map[string]any{}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 4:
+			// handleNotification will call tellStatus on meta gid to look for followedBy
+			if req.Method != "aria2.tellStatus" {
+				t.Fatalf("call4 method=%s", req.Method)
+			}
+			result := map[string]any{
+				"followedBy": []string{"realG"},
+				"bittorrent": map[string]any{"info": map[string]any{"name": "Real.Title"}},
+			}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 5:
+			if req.Method != "aria2.getFiles" {
+				t.Fatalf("call5 method=%s", req.Method)
+			}
+			result := []map[string]any{{"path": "/downloads/Real.Title/file1", "length": "10", "completedLength": "2"}}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		default:
+			t.Fatalf("unexpected call %d", call)
+			return nil, nil
+		}
+	})
+	a, events := newTestAdapterWithEvents(t, "secret", rt)
+	gid, err := a.Start(context.Background(), dl)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if gid != "metaG" {
+		t.Fatalf("expected initial gid metaG, got %s", gid)
+	}
+	// Drain initial events (Start + optional Meta)
+	<-events
+	select {
+	case <-events:
+	default:
+	}
+	// Now deliver metadata completion notification; adapter should swap GID
+	a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadComplete", Params: []aria2.NotificationEvent{{GID: "metaG"}}})
+	// Expect GIDUpdate then Meta for real gid
+	ev := <-events
+	if ev.Type != downloader.EventGIDUpdate || ev.NewGID != "realG" {
+		t.Fatalf("expected gid update to realG, got %#v", ev)
+	}
+	ev = <-events
+	if ev.Type != downloader.EventMeta || ev.Meta == nil || ev.Meta.Name == nil || *ev.Meta.Name != "Real.Title" {
+		t.Fatalf("expected meta with name Real.Title, got %#v", ev)
+	}
+}

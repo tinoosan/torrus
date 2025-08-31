@@ -329,6 +329,40 @@ func (a *Adapter) handleNotification(ctx context.Context, n aria2.Notification) 
 		}
 		switch n.Method {
 		case "aria2.onDownloadComplete":
+			// Before treating as terminal, check if this was a metadata task
+			// that spawned a real GID via followedBy. If so, swap tracking
+			// to the real GID and emit update/meta instead of completing.
+			if ns, err := a.tellNameStatus(ctx, p.GID); err == nil && ns != nil && len(ns.FollowedBy) > 0 && ns.FollowedBy[0] != "" {
+				real := ns.FollowedBy[0]
+				a.mu.Lock()
+				// carry over tracking to real gid
+				delete(a.gidToID, p.GID)
+				delete(a.activeGIDs, p.GID)
+				idCopy := id
+				a.gidToID[real] = idCopy
+				a.activeGIDs[real] = struct{}{}
+				if lp, ok := a.lastProg[p.GID]; ok {
+					a.lastProg[real] = lp
+					delete(a.lastProg, p.GID)
+				}
+				a.mu.Unlock()
+				if a.rep != nil {
+					a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventGIDUpdate, NewGID: real})
+				}
+				// Emit meta (name from ns or files) for the real gid
+				var meta downloader.Meta
+				if name := a.deriveName(ns, ""); name != "" { // source not known here
+					meta.Name = &name
+				}
+				if files := a.getFiles(ctx, real); files != nil {
+					meta.Files = &files
+				}
+				if meta.Name != nil || meta.Files != nil {
+					a.rep.Report(downloader.Event{ID: id, GID: real, Type: downloader.EventMeta, Meta: &meta})
+				}
+				// Do not emit Complete for metadata gid
+				continue
+			}
 			a.emitComplete(id, p.GID)
 			a.mu.Lock()
 			delete(a.gidToID, p.GID)
@@ -398,37 +432,7 @@ func (a *Adapter) tellStatus(ctx context.Context, gid string) (*downloader.Progr
 	return p, nil
 }
 
-// fetchName attempts to obtain a human-friendly display name for the download
-// identified by gid, using aria2 metadata first, then falling back to the
-// download source URL or magnet.
-func (a *Adapter) fetchName(ctx context.Context, gid string, source string) string {
-	// Prefer the generic name derivation based on tellStatus
-	ns, _ := a.tellNameStatus(ctx, gid)
-	if s := a.deriveName(ns, source); s != "" {
-		return s
-	}
-	// Fallbacks from source
-	if source == "" {
-		return ""
-	}
-	// Magnet dn param
-	if strings.HasPrefix(source, "magnet:") {
-		// magnet:?a=b&dn=name
-		if u, err := neturl.Parse(source); err == nil {
-			dn := u.Query().Get("dn")
-			if dn != "" {
-				return dn
-			}
-		}
-		return ""
-	}
-	if u, err := neturl.Parse(source); err == nil {
-		if u.Path != "" {
-			return path.Base(u.Path)
-		}
-	}
-	return ""
-}
+// fetchName was replaced by deriveName + tellNameStatus; removed to satisfy lint.
 
 // getFiles queries aria2.getFiles and maps to []data.DownloadFile.
 func (a *Adapter) getFiles(ctx context.Context, gid string) []data.DownloadFile {
@@ -470,6 +474,9 @@ func (a *Adapter) getFiles(ctx context.Context, gid string) []data.DownloadFile 
 
 // tellNameStatus fetches a minimal nameStatus for a gid.
 func (a *Adapter) tellNameStatus(ctx context.Context, gid string) (*nameStatus, error) {
+	if a.cl == nil {
+		return nil, fmt.Errorf("aria2 client not initialized")
+	}
 	params := make([]interface{}, 0, 3)
 	if tok := a.tokenParam(); tok != nil {
 		params = append(params, tok...)
