@@ -17,7 +17,8 @@ func TestHandle(t *testing.T) {
 	rpo := repo.NewInMemoryDownloadRepo()
 	// Seed repo with a download
 	dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive, GID: "g"}
-	if _, err := rpo.Add(context.Background(), dl); err != nil {
+	_, err := rpo.Add(context.Background(), dl)
+	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
@@ -42,7 +43,8 @@ func TestHandle(t *testing.T) {
 	}
 
 	// reset gid and test failure case
-	if _, err := rpo.Update(context.Background(), dl.ID, func(d *data.Download) error { d.GID = "g2"; return nil }); err != nil {
+	_, err = rpo.Update(context.Background(), dl.ID, func(d *data.Download) error { d.GID = "g2"; return nil })
+	if err != nil {
 		t.Fatalf("set gid: %v", err)
 	}
 	r.handle(downloader.Event{ID: dl.ID, GID: "g2", Type: downloader.EventFailed})
@@ -64,7 +66,8 @@ func TestHandleStartDoesNotOverrideStatus(t *testing.T) {
 		t.Run(string(st), func(t *testing.T) {
 			rpo := repo.NewInMemoryDownloadRepo()
 			dl := &data.Download{Source: "s", TargetPath: "t", Status: st, DesiredStatus: st}
-			if _, err := rpo.Add(context.Background(), dl); err != nil {
+			_, err := rpo.Add(context.Background(), dl)
+			if err != nil {
 				t.Fatalf("add: %v", err)
 			}
 			r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
@@ -89,7 +92,8 @@ func TestHandleIgnoresStaleTerminalEvents(t *testing.T) {
 	t.Run("mismatched gid", func(t *testing.T) {
 		rpo := repo.NewInMemoryDownloadRepo()
 		dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive, GID: "g"}
-		if _, err := rpo.Add(context.Background(), dl); err != nil {
+		_, err := rpo.Add(context.Background(), dl)
+		if err != nil {
 			t.Fatalf("add: %v", err)
 		}
 		r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)
@@ -108,7 +112,8 @@ func TestHandleIgnoresStaleTerminalEvents(t *testing.T) {
 	t.Run("missing repo gid", func(t *testing.T) {
 		rpo := repo.NewInMemoryDownloadRepo()
 		dl := &data.Download{Source: "s", TargetPath: "t", Status: data.StatusActive}
-		if _, err := rpo.Add(context.Background(), dl); err != nil {
+		_, err := rpo.Add(context.Background(), dl)
+		if err != nil {
 			t.Fatalf("add: %v", err)
 		}
 		r := New(slog.New(slog.NewTextHandler(io.Discard, nil)), rpo, nil)

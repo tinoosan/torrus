@@ -59,7 +59,8 @@ func TestDownloadsLifecycle(t *testing.T) {
 		t.Fatalf("expected status 200 got %d", rr.Code)
 	}
 	var list []map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+	err := json.NewDecoder(rr.Body).Decode(&list)
+	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(list) != 0 {
@@ -77,7 +78,8 @@ func TestDownloadsLifecycle(t *testing.T) {
 		t.Fatalf("expected status 201 got %d", rr.Code)
 	}
 	var created map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+	err = json.NewDecoder(rr.Body).Decode(&created)
+	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	id := int(created["id"].(float64))
@@ -91,7 +93,8 @@ func TestDownloadsLifecycle(t *testing.T) {
 		t.Fatalf("expected status 200 got %d", rr.Code)
 	}
 	list = nil
-	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+	err = json.NewDecoder(rr.Body).Decode(&list)
+	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(list) != 1 || int(list[0]["id"].(float64)) != id {

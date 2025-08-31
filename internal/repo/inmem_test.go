@@ -48,7 +48,8 @@ func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 		t.Fatalf("Get mismatch")
 	}
 
-	if _, err := r.Get(ctx, 999); !errors.Is(err, data.ErrNotFound) {
+	_, err = r.Get(ctx, 999)
+	if !errors.Is(err, data.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound")
 	}
 }
@@ -176,10 +177,12 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < n; i++ {
-			if _, err := repo.List(ctx); err != nil {
+			_, err := repo.List(ctx)
+			if err != nil {
 				t.Errorf("List error: %v", err)
 			}
-			if _, err := repo.Get(ctx, i); err != nil && !errors.Is(err, data.ErrNotFound) {
+			_, err = repo.Get(ctx, i)
+			if err != nil && !errors.Is(err, data.ErrNotFound) {
 				t.Errorf("Get error: %v", err)
 			}
 		}
@@ -190,7 +193,8 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if _, err := repo.Add(ctx, &data.Download{Source: fmt.Sprintf("s%d", i), TargetPath: "t"}); err != nil {
+			_, err := repo.Add(ctx, &data.Download{Source: fmt.Sprintf("s%d", i), TargetPath: "t"})
+			if err != nil {
 				t.Errorf("Add error: %v", err)
 			}
 		}(i)

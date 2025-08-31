@@ -78,7 +78,8 @@ func (a *Adapter) call(ctx context.Context, method string, params []interface{})
 	b, _ := io.ReadAll(resp.Body)
 
 	var rr rpcResp
-	if err := json.Unmarshal(b, &rr); err != nil {
+	err = json.Unmarshal(b, &rr)
+	if err != nil {
 		return nil, fmt.Errorf("aria2 rpc decode: %w (%s)", err, string(b))
 	}
 	if rr.Error != nil {
@@ -114,7 +115,8 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	}
 	// result is GID string
 	var gid string
-	if err := json.Unmarshal(res, &gid); err != nil {
+	err = json.Unmarshal(res, &gid)
+	if err != nil {
 		return "", fmt.Errorf("parse addUri result: %w", err)
 	}
 	if a.rep != nil {

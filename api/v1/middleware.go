@@ -26,7 +26,8 @@ func MiddlewareDownloadValidation(next http.Handler) http.Handler {
 		dl := &data.Download{}
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(dl); err != nil {
+		err := dec.Decode(dl)
+		if err != nil {
 			markErr(w, err)
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
@@ -50,7 +51,8 @@ func MiddlewarePatchDesired(next http.Handler) http.Handler {
 		var body patchBody
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&body); err != nil {
+		err := dec.Decode(&body)
+		if err != nil {
 			markErr(w, err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
