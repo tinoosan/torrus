@@ -95,7 +95,9 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
         return nil, false, err
     }
 
-    if saved.Status == data.StatusActive {
+    // Only trigger a new start when this call actually created the download.
+    // Idempotent hits (created=false) must not re-start already active items.
+    if saved.Status == data.StatusActive && created {
         go func(d *data.Download) {
             gid, derr := ds.dlr.Start(context.Background(), d)
             if derr != nil {
