@@ -10,5 +10,6 @@ var (
     ErrContentType = errors.New("Content-Type must be application/json")
     ErrMagnetURI = errors.New("invalid magnet link")
     ErrReadOnlyName = errors.New("name is read-only and cannot be set")
+    ErrReadOnlyFiles = errors.New("files is read-only and cannot be set")
 
 )
