@@ -88,6 +88,7 @@ Fields returned by the downloads API:
 | `gid`           | string | Backend identifier, may be `null` (read-only)                               |
 | `source`        | string | Download source link (magnet URI, HTTP URL, etc.)                           |
 | `targetPath`    | string | Destination path for the download                                           |
+| `name`          | string | Human-friendly display name from the downloader (read-only, optional)       |
 | `status`        | string | Current status. One of `Queued`, `Active`, `Paused`, `Complete`, `Cancelled`, `Failed` (read-only) |
 | `desiredStatus` | string | Desired status. Same enum as `status`                                       |
 | `createdAt`     | string | RFC3339 timestamp when the download was created (read-only)                 |

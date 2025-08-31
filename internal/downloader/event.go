@@ -8,22 +8,24 @@ package downloader
 // events carry transient information about the download and do not
 // mutate repository state yet.
 type Event struct {
-	ID       int
-	GID      string
-	Type     EventType
-	Progress *Progress
+    ID       int
+    GID      string
+    Type     EventType
+    Progress *Progress
+    Meta     *Meta
 }
 
 // EventType defines the set of events that downloaders may emit.
 type EventType string
 
 const (
-	EventStart     EventType = "Start"
-	EventPaused    EventType = "Paused"
-	EventCancelled EventType = "Cancelled"
-	EventComplete  EventType = "Complete"
-	EventFailed    EventType = "Failed"
-	EventProgress  EventType = "Progress"
+    EventStart     EventType = "Start"
+    EventPaused    EventType = "Paused"
+    EventCancelled EventType = "Cancelled"
+    EventComplete  EventType = "Complete"
+    EventFailed    EventType = "Failed"
+    EventProgress  EventType = "Progress"
+    EventMeta      EventType = "Meta"
 )
 
 // Progress provides optional details about an in-progress download.
@@ -35,4 +37,10 @@ type Progress struct {
     // Speed is the current download speed in bytes/sec, if available.
     // A value of 0 indicates it was not provided by the adapter.
     Speed     int64
+}
+
+// Meta carries optional metadata about a download that should be persisted
+// by the reconciler, such as the resolved resource name.
+type Meta struct {
+    Name *string
 }
