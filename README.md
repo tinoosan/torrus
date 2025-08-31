@@ -1,6 +1,6 @@
 # Torrus API
 
-Torrus is a work-in-progress API for managing and monitoring downloads.
+Torrus is a work-in-progress download orchestration microservice for managing and monitoring downloads. It abstracts tools like aria2 behind a REST API so media servers and other applications can request torrents, magnet links, or direct downloads without handling the downloader directly.
 
 ## Status
 🚧 **Under active development** — APIs, data models, and behavior are subject to change.
@@ -9,6 +9,22 @@ Torrus is a work-in-progress API for managing and monitoring downloads.
 - Create and list downloads
 - Update download state
 - Retrieve download details
+
+## Use Cases
+
+### Media server automation
+Use Torrus as a backend for Plex, Emby, or Jellyfin to automatically fetch torrents, magnet links, or direct downloads for your library.
+
+### General download orchestration
+Abstract aria2 or other downloaders behind a REST API so dashboards, UIs, or scripts can control downloads without talking to the downloader directly.
+
+### Microservice integration
+Run Torrus in Docker, Kubernetes, or other containerized environments where companion services request downloads via API instead of managing aria2 themselves.
+
+### Future Extensions
+- CLI interface for scripting.
+- Event-driven workflows (e.g., triggering jobs after a download completes).
+- Multi-user or multi-tenant support.
 
 ## Versioning Policy
 All API endpoints are explicitly versioned starting with **v1**.
