@@ -65,7 +65,8 @@ func (r *InMemoryDownloadRepo) Update(ctx context.Context, id int, mutate func(*
 	}
 
 	if mutate != nil {
-		if err := mutate(dl); err != nil {
+		err = mutate(dl)
+		if err != nil {
 			return nil, err
 		}
 	}
