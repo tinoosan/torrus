@@ -62,6 +62,8 @@ var (
 	ErrInvalidSource = errors.New("invalid source")
 	// ErrTargetPath signals that the provided target path is invalid.
 	ErrTargetPath = errors.New("invalid target path")
+    // ErrConflict signals a file collision based on collision policy.
+    ErrConflict = errors.New("file conflict")
 )
 
 // ToJSON writes the slice of downloads as JSON to the writer.

@@ -20,6 +20,7 @@ import (
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
+    "github.com/tinoosan/torrus/internal/downloadcfg"
 )
 
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
@@ -149,7 +150,7 @@ func (a *Adapter) tokenParam() []interface{} {
 }
 
 // Start: aria2.addUri([token?, [uris], options])
-func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) {
+func (a *Adapter) Start(ctx context.Context, dl *data.Download, o downloadcfg.StartOptions) (string, error) {
 	params := make([]interface{}, 0, 3)
 	if tok := a.tokenParam(); tok != nil {
 		params = append(params, tok...)
@@ -159,12 +160,19 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	if dl.TargetPath != "" {
 		opts["dir"] = dl.TargetPath
 	}
+    // Map generic collision policy to aria2 options
+    for k, v := range mapPolicyToAria2(o.Policy) {
+        opts[k] = v
+    }
 	params = append(params, opts)
 
-	res, err := a.call(ctx, "aria2.addUri", params)
-	if err != nil {
-		return "", err
-	}
+    res, err := a.call(ctx, "aria2.addUri", params)
+    if err != nil {
+        if isAria2ConflictError(err) {
+            return "", data.ErrConflict
+        }
+        return "", err
+    }
 	// metadata gid (for magnets) or real gid
 	var gid string
 	if err := json.Unmarshal(res, &gid); err != nil {
@@ -213,12 +221,19 @@ func (a *Adapter) Pause(ctx context.Context, dl *data.Download) error {
 }
 
 // Resume: aria2.unpause([token?, gid])
-func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
-	params := append(a.tokenParam(), dl.GID)
-	_, err := a.call(ctx, "aria2.unpause", params)
-	if err != nil {
-		return err
-	}
+func (a *Adapter) Resume(ctx context.Context, dl *data.Download, o downloadcfg.StartOptions) error {
+    // Apply collision policy via changeOption before unpause
+    if err := a.changeOption(ctx, dl.GID, mapPolicyToAria2(o.Policy)); err != nil {
+        return err
+    }
+    params := append(a.tokenParam(), dl.GID)
+    _, err := a.call(ctx, "aria2.unpause", params)
+    if err != nil {
+        if isAria2ConflictError(err) {
+            return data.ErrConflict
+        }
+        return err
+    }
 	// After unpause, check followedBy/bittorrent/files
 	ns, _ := a.tellNameStatus(ctx, dl.GID)
 	gid := dl.GID
@@ -256,6 +271,45 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
 		a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventMeta, Meta: &meta})
 	}
 	return nil
+}
+
+// changeOption: aria2.changeOption([token?, gid, options])
+func (a *Adapter) changeOption(ctx context.Context, gid string, opts map[string]string) error {
+    if len(opts) == 0 {
+        return nil
+    }
+    params := make([]interface{}, 0, 3)
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
+    }
+    params = append(params, gid)
+    params = append(params, opts)
+    _, err := a.call(ctx, "aria2.changeOption", params)
+    return err
+}
+
+func mapPolicyToAria2(p downloadcfg.CollisionPolicy) map[string]string {
+    switch p {
+    case downloadcfg.CollisionOverwrite:
+        return map[string]string{"allow-overwrite": "true", "auto-file-renaming": "false"}
+    case downloadcfg.CollisionRename:
+        return map[string]string{"allow-overwrite": "false", "auto-file-renaming": "true"}
+    case downloadcfg.CollisionError:
+        fallthrough
+    default:
+        return map[string]string{"allow-overwrite": "false", "auto-file-renaming": "false"}
+    }
+}
+
+// isAria2ConflictError attempts to detect a file-collision error from aria2.
+// aria2 typically returns RPC errors whose message contains phrases like
+// "File already exists" or "File exists" when writing the target fails.
+func isAria2ConflictError(err error) bool {
+    if err == nil {
+        return false
+    }
+    msg := strings.ToLower(err.Error())
+    return strings.Contains(msg, "file already exists") || strings.Contains(msg, "file exists")
 }
 
 // Cancel: aria2.remove([token?, gid])
