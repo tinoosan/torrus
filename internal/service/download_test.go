@@ -337,6 +337,18 @@ func TestDownloadService_Delete(t *testing.T) {
 		}
 	})
 
+	t.Run("cancel without gid", func(t *testing.T) {
+		d3, _ := r.Add(ctx, &data.Download{Source: "s3", TargetPath: "t3"})
+		dlr := &stubDownloader{}
+		svc := NewDownload(r, dlr)
+		if err := svc.Delete(ctx, d3.ID, false); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if !dlr.cancelled {
+			t.Fatalf("expected Cancel to be called even without gid")
+		}
+	})
+
 	t.Run("not found", func(t *testing.T) {
 		dlr := &stubDownloader{}
 		svc := NewDownload(r, dlr)
