@@ -269,7 +269,7 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download, o downloadcfg.S
 
 // changeOption: aria2.changeOption([token?, gid, options])
 func (a *Adapter) changeOption(ctx context.Context, gid string, opts map[string]string) error {
-    if opts == nil || len(opts) == 0 {
+    if len(opts) == 0 {
         return nil
     }
     params := make([]interface{}, 0, 3)
