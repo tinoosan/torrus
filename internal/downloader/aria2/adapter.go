@@ -362,17 +362,21 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
     // Determine files to remove: prefer aria2.getFiles paths (only if we still
     // have a GID), fall back to dl.Files, then best-effort using TargetPath + Name.
     var paths []string
+    var payloads []string // file payloads proven by getFiles/dl.Files
     if dl.GID != "" {
-        paths = a.getFilePaths(ctx, dl.GID)
+        payloads = a.getFilePaths(ctx, dl.GID)
     }
-	if len(paths) == 0 && len(dl.Files) > 0 {
-		for _, f := range dl.Files {
-			paths = append(paths, f.Path)
-		}
-	}
-	if len(paths) == 0 && dl.TargetPath != "" && dl.Name != "" {
-		paths = []string{dl.Name}
-	}
+    if len(payloads) == 0 && len(dl.Files) > 0 {
+        for _, f := range dl.Files {
+            payloads = append(payloads, f.Path)
+        }
+    }
+    if len(payloads) > 0 {
+        paths = append(paths, payloads...)
+    } else if dl.TargetPath != "" && dl.Name != "" {
+        // Fallback: only the logical root name
+        paths = []string{dl.Name}
+    }
 
 	base := filepath.Clean(dl.TargetPath)
 	if dl.TargetPath == "" {
@@ -401,8 +405,10 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
     var files []string
     sidecars := map[string]struct{}{}
     dirs := map[string]struct{}{}
+    // Track normalized absolute payload file paths for adjacent sidecars rule.
+    payloadSet := make(map[string]struct{})
 
-	// Normalize and validate file paths, collect sidecars and parent dirs.
+	// Normalize and validate file paths and collect parent dirs.
 	for _, p := range paths {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(base, p)
@@ -412,7 +418,18 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 			return fmt.Errorf("refusing to delete outside base: %s", p)
 		}
 		files = append(files, p)
-		sidecars[p+".aria2"] = struct{}{}
+		// Record as payload file if it originated from payloads list
+		for _, raw := range payloads {
+			abs := raw
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(base, abs)
+			}
+			abs = filepath.Clean(abs)
+			if abs == p {
+				payloadSet[p] = struct{}{}
+				break
+			}
+		}
 
 		d := filepath.Dir(p)
 		for {
@@ -426,6 +443,7 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 
     // Also attempt to remove the logical root directory or file named after dl.Name.
     // This covers cases where dl.Files are basenames but the payload lives under a folder.
+    trimmedOwned := false
     if dl.Name != "" {
         // helper: add a candidate root path for deletion
         addRoot := func(name string) {
@@ -478,6 +496,7 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
                     }
                 }
                 if owned {
+                    trimmedOwned = true
                     files = append(files, filepath.Clean(cand))
                 }
             }
@@ -505,29 +524,39 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		}
 	}
 
-	// Add potential sidecar files adjacent to the root directory.
-    if root != base {
-        sidecars[root+".aria2"] = struct{}{}
+    // Build sidecars set using ownership rules.
+    // Rule 2: Adjacent to known payload files (only .aria2 next to file payloads).
+    for p := range payloadSet {
+        sidecars[p+".aria2"] = struct{}{}
     }
-    // Also include base/Name.aria2 and a leading-tag-trimmed variant.
+    // Rule 1: Exact name match (base/Name.* and, if applicable, root.* when it equals base/Name).
     if dl.Name != "" {
         baseName := dl.Name
-        stripName := stripLeadingTags(dl.Name)
-
-        sidecars[filepath.Join(base, baseName+".aria2")] = struct{}{}
-        if stripName != "" && stripName != baseName {
-            sidecars[filepath.Join(base, stripName+".aria2")] = struct{}{}
+        exact := filepath.Join(base, baseName)
+        sidecars[exact+".aria2"] = struct{}{}
+        if isTorrentSource(dl.Source) {
+            sidecars[exact+".torrent"] = struct{}{}
+        }
+        if root != base && root == exact {
+            sidecars[root+".aria2"] = struct{}{}
+            if isTorrentSource(dl.Source) {
+                sidecars[root+".torrent"] = struct{}{}
+            }
         }
     }
-    if isTorrentSource(dl.Source) && dl.Name != "" {
-        baseName := dl.Name
+    // Rule 3: Trimmed leading-tags (only if earlier ownership proof succeeded).
+    if trimmedOwned {
         stripName := stripLeadingTags(dl.Name)
-        sidecars[filepath.Join(base, baseName+".torrent")] = struct{}{}
-        if stripName != "" && stripName != baseName {
-            sidecars[filepath.Join(base, stripName+".torrent")] = struct{}{}
+        t := filepath.Join(base, stripName)
+        sidecars[t+".aria2"] = struct{}{}
+        if isTorrentSource(dl.Source) {
+            sidecars[t+".torrent"] = struct{}{}
         }
-        if root != base {
-            sidecars[root+".torrent"] = struct{}{}
+        if root != base && root == t {
+            sidecars[root+".aria2"] = struct{}{}
+            if isTorrentSource(dl.Source) {
+                sidecars[root+".torrent"] = struct{}{}
+            }
         }
     }
 
@@ -581,6 +610,17 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		dirList = append(dirList, d)
 	}
 	sort.Slice(dirList, func(i, j int) bool { return len(dirList[i]) > len(dirList[j]) })
+    // Only remove a leftover sidecar next to the pruned dir if the dir itself was
+    // proven as the logical root of this download (exact name or trimmed-owned).
+    rootSidecarAllowed := false
+    if dl.Name != "" {
+        if filepath.Join(base, dl.Name) == root {
+            rootSidecarAllowed = true
+        }
+        if trimmedOwned && filepath.Join(base, stripLeadingTags(dl.Name)) == root {
+            rootSidecarAllowed = true
+        }
+    }
     for _, d := range dirList {
         log.Info("prune dir", "path", d)
         if err := a.fs.Remove(d); err != nil {
@@ -590,8 +630,10 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
             log.Error("prune dir", "path", d, "err", err)
             return fmt.Errorf("delete %s: %w", d, err)
         }
-        // Best-effort remove any leftover sidecar next to the pruned dir.
-        _ = a.fs.Remove(d + ".aria2")
+        // Best-effort only for the owned logical root directory.
+        if rootSidecarAllowed && d == root {
+            _ = a.fs.Remove(d + ".aria2")
+        }
     }
 
 	return nil
