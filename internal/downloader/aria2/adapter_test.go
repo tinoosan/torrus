@@ -153,6 +153,15 @@ func must[T any](v T, err error) T {
 	return v
 }
 
+// newAdapterNoRPC creates an adapter with default client and no custom transport.
+// Useful for tests that only exercise filesystem behavior (no RPC).
+func newAdapterNoRPC(t *testing.T) *Adapter {
+    t.Helper()
+    c, err := aria2.NewClientFromEnv()
+    if err != nil { t.Fatalf("client: %v", err) }
+    return NewAdapter(c, nil)
+}
+
 func TestAdapterResumeEmitsMeta(t *testing.T) {
 	dl := &data.Download{ID: "1", Source: "magnet:?xt=urn:btih:abc&dn=Cool.Name.2024", GID: "gid-9"}
 	call := 0
@@ -290,15 +299,16 @@ func TestAdapterDeleteDeletesFiles(t *testing.T) {
 	a := newTestAdapter(t, "", rt)
 	fake := &fakeFS{}
 	a.fs = fake
-	if err := a.Delete(context.Background(), dl, true); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if len(fake.removed) != 2 || fake.removed[0] != file {
-		t.Fatalf("unexpected removed files: %#v", fake.removed)
-	}
-	if len(fake.removedAll) != 0 {
-		t.Fatalf("expected no RemoveAll calls")
-	}
+    if err := a.Delete(context.Background(), dl, true); err != nil {
+        t.Fatalf("Delete: %v", err)
+    }
+    // Payload removed via RemoveAll; sidecar via Remove
+    if len(fake.removedAll) != 1 || fake.removedAll[0] != file {
+        t.Fatalf("unexpected RemoveAll calls: %#v", fake.removedAll)
+    }
+    if len(fake.removed) != 1 || fake.removed[0] != file+".aria2" {
+        t.Fatalf("unexpected Remove calls: %#v", fake.removed)
+    }
 }
 
 func TestAdapterDeletePrunesDirs(t *testing.T) {
@@ -355,25 +365,27 @@ func TestAdapterDeletePrunesDirs(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	expected := map[string]struct{}{
-		f1:                                      {},
-		f1 + ".aria2":                           {},
-		f2:                                      {},
-		f2 + ".aria2":                           {},
-		filepath.Join(base, "Show.aria2"):       {},
-		filepath.Join(base, "Show.torrent"):     {},
-		filepath.Join(base, "Show", "Season 1"): {},
-		filepath.Join(base, "Show"):             {},
-	}
-	for _, p := range fake.removed {
-		delete(expected, p)
-	}
-	if len(expected) != 0 {
-		t.Fatalf("missing removals: %#v", expected)
-	}
-	if len(fake.removedAll) != 0 {
-		t.Fatalf("expected no RemoveAll calls")
-	}
+    expectedRemoved := map[string]struct{}{
+        f1 + ".aria2":                           {},
+        f2 + ".aria2":                           {},
+        filepath.Join(base, "Show.aria2"):       {},
+        filepath.Join(base, "Show.torrent"):     {},
+        filepath.Join(base, "Show", "Season 1"): {},
+        filepath.Join(base, "Show"):             {},
+    }
+    for _, p := range fake.removed {
+        delete(expectedRemoved, p)
+    }
+    if len(expectedRemoved) != 0 {
+        t.Fatalf("missing Remove calls: %#v", expectedRemoved)
+    }
+    expectedAll := map[string]struct{}{f1: {}, f2: {}}
+    for _, p := range fake.removedAll {
+        delete(expectedAll, p)
+    }
+    if len(expectedAll) != 0 {
+        t.Fatalf("missing RemoveAll calls: %#v", expectedAll)
+    }
 }
 
 func TestAdapterDeleteErrorPropagation(t *testing.T) {
@@ -921,6 +933,67 @@ func TestAdapterHandleNotification(t *testing.T) {
 	if ev.Type != downloader.EventFailed || ev.ID != "2" || ev.GID != "g2" {
 		t.Fatalf("unexpected event %#v", ev)
 	}
+}
+
+// --- Consolidated delete fallback tests ---
+
+func TestDelete_HTTPFile_Cancelled_Fallback_RemovesFileAndAria2(t *testing.T) {
+    t.Parallel()
+    ctx := context.Background()
+    base := t.TempDir()
+    file := filepath.Join(base, "movie.mp4")
+    if err := os.WriteFile(file, []byte("x"), 0o644); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(file+".aria2", []byte("m"), 0o644); err != nil { t.Fatal(err) }
+
+    dl := &data.Download{ID: "id1", Source: "https://example.com/movie.mp4", TargetPath: base, Name: "movie.mp4"}
+    a := newAdapterNoRPC(t)
+
+    if err := a.Delete(ctx, dl, true); err != nil { t.Fatalf("Delete: %v", err) }
+
+    if _, err := os.Stat(file); !os.IsNotExist(err) { t.Fatalf("payload not deleted: %v", err) }
+    if _, err := os.Stat(file+".aria2"); !os.IsNotExist(err) { t.Fatalf("aria2 sidecar not deleted: %v", err) }
+}
+
+func TestDelete_TorrentFolder_Cancelled_RemovesFolderAndSidecars(t *testing.T) {
+    t.Parallel()
+    ctx := context.Background()
+    base := t.TempDir()
+    root := filepath.Join(base, "MyTorrent")
+    nested := filepath.Join(root, "disc1")
+    if err := os.MkdirAll(nested, 0o755); err != nil { t.Fatal(err) }
+    p := filepath.Join(nested, "track.flac")
+    if err := os.WriteFile(p, []byte("x"), 0o644); err != nil { t.Fatal(err) }
+    // sidecars
+    if err := os.WriteFile(root+".aria2", []byte("a"), 0o644); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(filepath.Join(base, "MyTorrent.torrent"), []byte("t"), 0o644); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(root+".torrent", []byte("t2"), 0o644); err != nil { t.Fatal(err) }
+
+    dl := &data.Download{ID: "id2", Source: "magnet:?xt=urn:btih:abc", TargetPath: base, Name: "MyTorrent"}
+    a := newAdapterNoRPC(t)
+
+    if err := a.Delete(ctx, dl, true); err != nil { t.Fatalf("Delete: %v", err) }
+
+    if _, err := os.Stat(root); !os.IsNotExist(err) { t.Fatalf("folder not deleted: %v", err) }
+    if _, err := os.Stat(root+".aria2"); !os.IsNotExist(err) { t.Fatalf("root .aria2 not deleted: %v", err) }
+    if _, err := os.Stat(filepath.Join(base, "MyTorrent.torrent")); !os.IsNotExist(err) { t.Fatalf(".torrent sidecar not deleted: %v", err) }
+    if _, err := os.Stat(root+".torrent"); !os.IsNotExist(err) { t.Fatalf("root .torrent not deleted: %v", err) }
+}
+
+func TestDelete_EarlyCancel_NoFiles_GIDGone_UsesFallback(t *testing.T) {
+    t.Parallel()
+    ctx := context.Background()
+    base := t.TempDir()
+    root := filepath.Join(base, "Early")
+    if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil { t.Fatal(err) }
+    f := filepath.Join(root, "sub", "a.bin")
+    if err := os.WriteFile(f, []byte("x"), 0o644); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(root+".aria2", []byte("a"), 0o644); err != nil { t.Fatal(err) }
+
+    dl := &data.Download{ID: "id3", Source: "https://host/early", TargetPath: base, Name: "Early"}
+    a := newAdapterNoRPC(t)
+
+    if err := a.Delete(ctx, dl, true); err != nil { t.Fatalf("Delete: %v", err) }
+    if _, err := os.Stat(root); !os.IsNotExist(err) { t.Fatalf("root dir not removed: %v", err) }
 }
 
 func TestAdapterMetadataCompleteTriggersFollowedBySwap(t *testing.T) {
