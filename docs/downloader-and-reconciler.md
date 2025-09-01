@@ -25,7 +25,7 @@ Logging & correlation:
 - Long-running poll/notification loops add a stable `operation_id` at startup.
 
 Deletion safety:
-- See [Deletion Semantics & Safety](deletion-safety.md) for ownership-based sidecar removal and path safety guarantees.
+- See [Operations: Correlation & Deletion Safety](operations.md) for ownership-based sidecar removal and path safety guarantees.
 
 ### Reporter events
 `Start`, `Paused`, `Cancelled`, `Complete`, `Failed`, `Progress`, `Meta`

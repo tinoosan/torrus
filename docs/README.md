@@ -20,8 +20,7 @@ contributors can quickly become productive.
 - [Contributing](contributing.md)
 - [OpenAPI](openapi.md)
 - [Security & Ops](security-and-ops.md)
-- [Logging & Correlation](logging-and-correlation.md)
-- [Deletion Safety](deletion-safety.md)
+- [Operations: Correlation & Deletion Safety](operations.md)
 
 Keep docs close to code—when you change contracts or behaviors,
 update the relevant document in the same pull request.
