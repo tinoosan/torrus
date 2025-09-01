@@ -38,7 +38,7 @@ state in an in-memory repository.
 - **Repo** – in-memory persistence with `Update` mutation closures to
   ensure atomic writes.
 - **Downloader** – pluggable adapter (`aria2`, `noop`) implementing
-  `Start`, `Pause`, `Resume`, `Cancel`, `Purge`.
+  `Start`, `Pause`, `Resume`, `Cancel`, `Delete`.
 - **Reconciler** – consumes events from downloaders and updates the
   repository accordingly.
 
