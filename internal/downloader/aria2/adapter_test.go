@@ -996,6 +996,26 @@ func TestDelete_EarlyCancel_NoFiles_GIDGone_UsesFallback(t *testing.T) {
     if _, err := os.Stat(root); !os.IsNotExist(err) { t.Fatalf("root dir not removed: %v", err) }
 }
 
+func TestDelete_TrimmedLeadingTag_SidecarRemoved(t *testing.T) {
+    t.Parallel()
+    ctx := context.Background()
+    base := t.TempDir()
+    // Real on-disk folder has trailing tag but no leading [METADATA]
+    real := "Rick.and.Morty.S07E03.[TGx]"
+    root := filepath.Join(base, real)
+    if err := os.MkdirAll(filepath.Join(root, "d"), 0o755); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(filepath.Join(root, "d", "f"), []byte("x"), 0o644); err != nil { t.Fatal(err) }
+    // Root control sidecar placed at TargetPath
+    if err := os.WriteFile(filepath.Join(base, real+".aria2"), []byte("a"), 0o644); err != nil { t.Fatal(err) }
+
+    // Name from metadata includes a leading tag that should be trimmed
+    dl := &data.Download{ID: "idX", Source: "magnet:?xt=urn:btih:xyz", TargetPath: base, Name: "[METADATA] "+real}
+    a := newAdapterNoRPC(t)
+    if err := a.Delete(ctx, dl, true); err != nil { t.Fatalf("Delete: %v", err) }
+    if _, err := os.Stat(root); !os.IsNotExist(err) { t.Fatalf("root dir not removed: %v", err) }
+    if _, err := os.Stat(filepath.Join(base, real+".aria2")); !os.IsNotExist(err) { t.Fatalf("root sidecar not removed: %v", err) }
+}
+
 func TestAdapterMetadataCompleteTriggersFollowedBySwap(t *testing.T) {
 	// Start with a magnet where immediate followedBy is empty; later a completion
 	// notification for the metadata gid should cause a swap to the real gid.
