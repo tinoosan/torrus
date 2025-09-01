@@ -342,7 +342,17 @@ func (a *Adapter) Purge(ctx context.Context, dl *data.Download) error {
 		if !filepath.IsAbs(p) && dl.TargetPath != "" {
 			p = filepath.Join(dl.TargetPath, p)
 		}
-		_ = os.Remove(p)
+
+		if fi, err := os.Lstat(p); err == nil {
+			if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+				_ = os.RemoveAll(p)
+			} else {
+				_ = os.Remove(p)
+			}
+		} else {
+			_ = os.Remove(p)
+		}
+
 		_ = os.Remove(p + ".aria2")
 	}
 
