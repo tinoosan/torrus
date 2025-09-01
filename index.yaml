@@ -5,7 +5,7 @@ info:
   description: |
     API for managing and monitoring downloads.
 
-    - All API routes are served under `/v1` (except `/healthz`)
+    - All API routes are served under `/v1` (except `/healthz`, `/readyz`)
     - Request bodies are **strict JSON** (unknown fields rejected)
     - Request body max size ~1 MiB
     - `Content-Type` must be `application/json`
@@ -212,10 +212,45 @@ paths:
             X-Request-ID:
               $ref: '#/components/headers/RequestID'
           content:
-            text/plain:
+        text/plain:
+          schema:
+            type: string
+            example: ok
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Returns 200 when the service is ready to handle work; 503 otherwise.
+      operationId: readyz
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestID'
+      responses:
+        "200":
+          description: Service is ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
               schema:
-                type: string
-                example: ok
+                $ref: '#/components/schemas/ReadyzResponse'
+              examples:
+                ready:
+                  value: { ready: true }
+        "503":
+          description: Service is not ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyzResponse'
+              examples:
+                notReady:
+                  value: { ready: false, error: "aria2 not reachable" }
+
 
 components:
   responses:
@@ -231,6 +266,16 @@ components:
           $ref: '#/components/headers/RequestID'
 
   schemas:
+    ReadyzResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        ready:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+      required: [ready]
     Downloads:
       type: array
       items:
