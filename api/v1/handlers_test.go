@@ -382,7 +382,9 @@ func (c *conflictDL) Resume(ctx context.Context, d *internaldata.Download) error
 	return internaldata.ErrConflict
 }
 func (c *conflictDL) Cancel(ctx context.Context, d *internaldata.Download) error { return nil }
-func (c *conflictDL) Purge(ctx context.Context, d *internaldata.Download) error  { return nil }
+func (c *conflictDL) Delete(ctx context.Context, d *internaldata.Download, deleteFiles bool) error {
+	return nil
+}
 
 func TestPatchConflictPolicyReturns409(t *testing.T) {
 	t.Setenv("TORRUS_API_TOKEN", testToken)

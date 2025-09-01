@@ -40,8 +40,13 @@ func (d *noopDownloader) Cancel(ctx context.Context, dl *data.Download) error {
 	return nil
 }
 
-// Purge logs the purge request and does nothing else.
-func (d *noopDownloader) Purge(ctx context.Context, dl *data.Download) error {
-	fmt.Println("noop: purge", dl.ID)
+// Delete logs the delete request and does nothing else. If deleteFiles is true
+// it still only logs and pretends success.
+func (d *noopDownloader) Delete(ctx context.Context, dl *data.Download, deleteFiles bool) error {
+	if deleteFiles {
+		fmt.Println("noop: delete with files", dl.ID)
+	} else {
+		fmt.Println("noop: delete", dl.ID)
+	}
 	return nil
 }
