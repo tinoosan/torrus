@@ -13,9 +13,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
@@ -61,6 +63,7 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 
 var _ downloader.Downloader = (*Adapter)(nil)
 var _ downloader.EventSource = (*Adapter)(nil)
+var _ downloader.FileLister = (*Adapter)(nil)
 
 // --- JSON-RPC wire types ---
 
@@ -332,8 +335,8 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 }
 
 // Delete cancels the download, clears aria2 result state and optionally removes
-// payload files and adjacent .aria2 control files. If deleteFiles is true and
-// any file removal fails, the first error is returned.
+// payload files, known sidecar files and prunes empty directories. If
+// deleteFiles is true and any removal fails, the first error is returned.
 func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles bool) error {
 	if dl.GID != "" {
 		if err := a.Cancel(ctx, dl); err != nil && !errors.Is(err, downloader.ErrNotFound) {
@@ -360,36 +363,154 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 	}
 
 	base := filepath.Clean(dl.TargetPath)
+	if dl.TargetPath == "" {
+		base = ""
+	}
+
+	// Helper to ensure a path is within the base directory.
+	baseWithSep := base
+	if baseWithSep != "" && !strings.HasSuffix(baseWithSep, string(os.PathSeparator)) {
+		baseWithSep += string(os.PathSeparator)
+	}
+	isSafe := func(p string) bool {
+		if base == "" {
+			return true
+		}
+		if p == base {
+			return true
+		}
+		return strings.HasPrefix(p, baseWithSep)
+	}
+
+	var files []string
+	sidecars := map[string]struct{}{}
+	dirs := map[string]struct{}{}
+
+	// Normalize and validate file paths, collect sidecars and parent dirs.
 	for _, p := range paths {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(base, p)
 		}
 		p = filepath.Clean(p)
-		if base != "" {
-			b := base
-			if !strings.HasSuffix(b, string(os.PathSeparator)) {
-				b += string(os.PathSeparator)
+		if !isSafe(p) {
+			return fmt.Errorf("refusing to delete outside base: %s", p)
+		}
+		files = append(files, p)
+		sidecars[p+".aria2"] = struct{}{}
+
+		d := filepath.Dir(p)
+		for {
+			if d == base || d == string(os.PathSeparator) || d == "." {
+				break
 			}
-			if !strings.HasPrefix(p, b) && p != base {
-				return fmt.Errorf("refusing to delete outside base: %s", p)
+			dirs[d] = struct{}{}
+			d = filepath.Dir(d)
+		}
+	}
+
+	// Determine download root (directory containing payload files).
+	root := base
+	if len(files) > 0 {
+		segs := make(map[string]struct{})
+		for _, p := range files {
+			rel, err := filepath.Rel(base, p)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				continue
+			}
+			parts := strings.Split(rel, string(os.PathSeparator))
+			if len(parts) > 1 {
+				segs[parts[0]] = struct{}{}
 			}
 		}
-		info, err := os.Stat(p)
-		if err == nil && info.IsDir() {
-			if err := a.fs.RemoveAll(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("delete %s: %w", p, err)
-			}
-		} else {
-			if err := a.fs.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("delete %s: %w", p, err)
-			}
-			if err := a.fs.Remove(p + ".aria2"); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("delete %s: %w", p+".aria2", err)
+		if len(segs) == 1 {
+			for s := range segs {
+				root = filepath.Join(base, s)
 			}
 		}
 	}
 
+	// Add potential sidecar files adjacent to the root directory.
+	if root != base {
+		sidecars[root+".aria2"] = struct{}{}
+	}
+	if isTorrentSource(dl.Source) && dl.Name != "" {
+		sidecars[filepath.Join(base, dl.Name+".torrent")] = struct{}{}
+		if root != base {
+			sidecars[root+".torrent"] = struct{}{}
+		}
+	}
+
+	// Convert sidecar set to slice for processing.
+	var scs []string
+	for s := range sidecars {
+		s = filepath.Clean(s)
+		if !isSafe(s) {
+			return fmt.Errorf("refusing to delete outside base: %s", s)
+		}
+		scs = append(scs, s)
+	}
+
+	// Delete payload files.
+	for _, p := range files {
+		a.log.Info("delete file", "path", p)
+		if err := a.fs.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			a.log.Error("delete file", "path", p, "err", err)
+			return fmt.Errorf("delete %s: %w", p, err)
+		}
+	}
+
+	// Delete sidecar files (.aria2, .torrent).
+	for _, s := range scs {
+		a.log.Info("delete sidecar", "path", s)
+		if err := a.fs.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
+			a.log.Error("delete sidecar", "path", s, "err", err)
+			return fmt.Errorf("delete %s: %w", s, err)
+		}
+	}
+
+	// Build list of directories to prune, deepest first.
+	if root != base {
+		dirs[root] = struct{}{}
+	}
+	var dirList []string
+	for d := range dirs {
+		d = filepath.Clean(d)
+		if !isSafe(d) {
+			return fmt.Errorf("refusing to delete outside base: %s", d)
+		}
+		dirList = append(dirList, d)
+	}
+	sort.Slice(dirList, func(i, j int) bool { return len(dirList[i]) > len(dirList[j]) })
+	for _, d := range dirList {
+		a.log.Info("prune dir", "path", d)
+		if err := a.fs.Remove(d); err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTEMPTY) {
+				continue
+			}
+			a.log.Error("prune dir", "path", d, "err", err)
+			return fmt.Errorf("delete %s: %w", d, err)
+		}
+
+		if fi, err := os.Lstat(d); err == nil {
+			if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+				_ = os.RemoveAll(d)
+			} else {
+				_ = os.Remove(d)
+			}
+		} else {
+			_ = os.Remove(d)
+		}
+
+		_ = os.Remove(d + ".aria2")
+
+	}
+
 	return nil
+}
+
+func isTorrentSource(src string) bool {
+	s := strings.ToLower(src)
+	return strings.HasPrefix(s, "magnet:") || strings.HasSuffix(s, ".torrent")
 }
 
 // EmitComplete can be used by callers to signal that a download finished
@@ -612,6 +733,15 @@ func (a *Adapter) getFilePaths(ctx context.Context, gid string) []string {
 		}
 	}
 	return out
+}
+
+// GetFiles exposes aria2.getFiles as absolute paths for the given gid.
+func (a *Adapter) GetFiles(ctx context.Context, gid string) ([]string, error) {
+    paths := a.getFilePaths(ctx, gid)
+    if len(paths) == 0 {
+        return nil, fmt.Errorf("no files for gid %s", gid)
+    }
+    return paths, nil
 }
 
 // tellNameStatus fetches a minimal nameStatus for a gid.

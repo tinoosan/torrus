@@ -350,57 +350,21 @@ func TestDownloadService_Delete(t *testing.T) {
 	r := repo.NewInMemoryDownloadRepo()
 	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g"})
 
-	t.Run("delete record only", func(t *testing.T) {
-		dlr := &stubDownloader{}
-		svc := NewDownload(r, dlr)
-		if err := svc.Delete(ctx, d.ID, false); err != nil {
-			t.Fatalf("Delete: %v", err)
-		}
-		if !dlr.deleted || dlr.deletedFiles {
-			t.Fatalf("expected Delete(false); got deleted=%v files=%v", dlr.deleted, dlr.deletedFiles)
-		}
-		if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
-			t.Fatalf("expected repo deletion, got %v", err)
-		}
-	})
+    t.Run("delete record only", func(t *testing.T) {
+        dlr := &stubDownloader{}
+        svc := NewDownload(r, dlr)
+        if err := svc.Delete(ctx, d.ID, false); err != nil {
+            t.Fatalf("Delete: %v", err)
+        }
+        if !dlr.cancelled {
+            t.Fatalf("expected Cancel to be called")
+        }
+        if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
+            t.Fatalf("expected repo deletion, got %v", err)
+        }
+    })
 
-	t.Run("delete with files", func(t *testing.T) {
-		d2, _ := r.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2", GID: "g2"})
-		dlr := &stubDownloader{}
-		svc := NewDownload(r, dlr)
-		if err := svc.Delete(ctx, d2.ID, true); err != nil {
-			t.Fatalf("Delete: %v", err)
-		}
-		if !dlr.deleted || !dlr.deletedFiles {
-			t.Fatalf("expected Delete(true); got deleted=%v files=%v", dlr.deleted, dlr.deletedFiles)
-		}
-	})
-
-	t.Run("delete without gid", func(t *testing.T) {
-		d3, _ := r.Add(ctx, &data.Download{Source: "s3", TargetPath: "t3"})
-		dlr := &stubDownloader{}
-		svc := NewDownload(r, dlr)
-		if err := svc.Delete(ctx, d3.ID, false); err != nil {
-			t.Fatalf("Delete: %v", err)
-		}
-		if !dlr.deleted {
-			t.Fatalf("expected Delete to be called even without gid")
-		}
-	})
-
-	t.Run("delete files error", func(t *testing.T) {
-		d4, _ := r.Add(ctx, &data.Download{Source: "s4", TargetPath: "t4"})
-		dlr := &stubDownloader{deleteFn: func(ctx context.Context, d *data.Download, deleteFiles bool) error {
-			return errors.New("boom")
-		}}
-		svc := NewDownload(r, dlr)
-		if err := svc.Delete(ctx, d4.ID, true); err == nil {
-			t.Fatalf("expected error")
-		}
-		if _, err := r.Get(ctx, d4.ID); err != nil {
-			t.Fatalf("expected record retained, got %v", err)
-		}
-	})
+    // file deletion flows are covered in download_delete_test.go
 
 	t.Run("not found", func(t *testing.T) {
 		dlr := &stubDownloader{}
