@@ -20,6 +20,13 @@ satisfy `EventSource` and emit events through a `Reporter` channel.
 - `Delete`  → `aria2.removeDownloadResult`
 - Polling (`ARIA2_POLL_MS`) fills in progress if notifications are silent.
 
+Logging & correlation:
+- If a `request_id` exists in the incoming context, adapter logs include it.
+- Long-running poll/notification loops add a stable `operation_id` at startup.
+
+Deletion safety:
+- See [Operations: Correlation & Deletion Safety](operations.md) for ownership-based sidecar removal and path safety guarantees.
+
 ### Reporter events
 `Start`, `Paused`, `Cancelled`, `Complete`, `Failed`, `Progress`, `Meta`
 and `GIDUpdate`. Metadata events supply resolved `name` and `files[]`.
