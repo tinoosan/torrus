@@ -5,7 +5,7 @@ info:
   description: |
     API for managing and monitoring downloads.
 
-    - All API routes are served under `/v1` (except `/healthz`, `/readyz`, `/metrics`)
+    - All API routes are served under `/v1` (except `/healthz`, `/readyz`)
     - Request bodies are **strict JSON** (unknown fields rejected)
     - Request body max size ~1 MiB
     - `Content-Type` must be `application/json`
@@ -251,28 +251,6 @@ paths:
                 notReady:
                   value: { ready: false, error: "aria2 not reachable" }
 
-  /metrics:
-    get:
-      summary: Prometheus metrics
-      description: Exposes Prometheus metrics in the standard text-based exposition format.
-      operationId: metrics
-      security: []
-      parameters:
-        - $ref: '#/components/parameters/RequestID'
-      responses:
-        "200":
-          description: Metrics
-          headers:
-            X-Request-ID:
-              $ref: '#/components/headers/RequestID'
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: |
-                  # HELP torrus_active_downloads Number of active downloads tracked by the adapter.
-                  # TYPE torrus_active_downloads gauge
-                  torrus_active_downloads 1
 
 components:
   responses:
