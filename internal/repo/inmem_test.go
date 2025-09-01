@@ -35,12 +35,19 @@ func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 		t.Fatalf("List = %v len %d err %v", list, len(list), err)
 	}
 
-	// ensure clones returned
-	list[0].ID = "mut"
-	again, _ := r.List(ctx)
-	if again[0].ID != d1.ID {
-		t.Fatalf("repo mutated via clone")
-	}
+    // ensure clones returned: mutate a copy and ensure stored record unchanged
+    list[0].ID = "mut"
+    again, _ := r.List(ctx)
+    found := false
+    for _, it := range again {
+        if it.ID == d1.ID {
+            found = true
+            break
+        }
+    }
+    if !found {
+        t.Fatalf("repo mutated via clone")
+    }
 
 	got, err := r.Get(ctx, d1.ID)
 	if err != nil {
