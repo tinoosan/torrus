@@ -10,5 +10,5 @@ The OpenAPI definition lives at [`index.yaml`](../index.yaml).
 ## Conventions
 - Read‑only fields such as `name` and `files` are marked `readOnly`.
 - The spec is strict JSON: unknown fields are rejected.
-- Versioned under `/v1`; unversioned paths should be avoided except
-  `/healthz`.
+- Versioned under `/v1`; unversioned paths are limited to
+  `/healthz`, `/readyz`, and `/metrics` for probes and scraping.
