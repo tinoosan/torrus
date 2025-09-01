@@ -50,7 +50,7 @@ func newTestAdapterWithEvents(t *testing.T, secret string, rt http.RoundTripper)
 
 func TestAdapterStart(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		dl := &data.Download{ID: 1, Source: "http://example.com/files/movie.mkv", TargetPath: "/tmp"}
+		dl := &data.Download{ID: "1", Source: "http://example.com/files/movie.mkv", TargetPath: "/tmp"}
 		call := 0
 		rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			call++
@@ -153,7 +153,7 @@ func must[T any](v T, err error) T {
 }
 
 func TestAdapterResumeEmitsMeta(t *testing.T) {
-	dl := &data.Download{ID: 1, Source: "magnet:?xt=urn:btih:abc&dn=Cool.Name.2024", GID: "gid-9"}
+	dl := &data.Download{ID: "1", Source: "magnet:?xt=urn:btih:abc&dn=Cool.Name.2024", GID: "gid-9"}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
@@ -213,7 +213,7 @@ func TestAdapterPurgeDeletesFiles(t *testing.T) {
 	if err := os.WriteFile(file+".aria2", []byte("x"), 0o644); err != nil {
 		t.Fatalf("write control: %v", err)
 	}
-	dl := &data.Download{ID: 1, GID: "gid1", TargetPath: tmpDir}
+	dl := &data.Download{ID: "1", GID: "gid1", TargetPath: tmpDir}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
@@ -258,7 +258,7 @@ func TestAdapterPurgeDeletesFiles(t *testing.T) {
 }
 
 func TestAdapterEmitsFilesMeta(t *testing.T) {
-	dl := &data.Download{ID: 42, Source: "http://example.com/pack", TargetPath: "/tmp"}
+	dl := &data.Download{ID: "42", Source: "http://example.com/pack", TargetPath: "/tmp"}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
@@ -331,7 +331,7 @@ func TestAdapterEmitsFilesMeta(t *testing.T) {
 }
 
 func TestAdapterFiltersDotFiles(t *testing.T) {
-	dl := &data.Download{ID: 7, Source: "http://example.com/onefile", TargetPath: "/tmp"}
+	dl := &data.Download{ID: "7", Source: "http://example.com/onefile", TargetPath: "/tmp"}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
@@ -399,7 +399,7 @@ func TestAdapterFiltersDotFiles(t *testing.T) {
 }
 
 func TestAdapterStartMagnetFollowedBySwap(t *testing.T) {
-	dl := &data.Download{ID: 11, Source: "magnet:?xt=urn:btih:abc&dn=My.Torrent", TargetPath: "/tmp"}
+	dl := &data.Download{ID: "11", Source: "magnet:?xt=urn:btih:abc&dn=My.Torrent", TargetPath: "/tmp"}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
@@ -456,7 +456,7 @@ func TestAdapterStartMagnetFollowedBySwap(t *testing.T) {
 }
 
 func TestAdapterResumeFollowedBySwap(t *testing.T) {
-	dl := &data.Download{ID: 21, Source: "magnet:?xt=urn:btih:abc&dn=Z.Name", GID: "metaG"}
+	dl := &data.Download{ID: "21", Source: "magnet:?xt=urn:btih:abc&dn=Z.Name", GID: "metaG"}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
@@ -594,7 +594,7 @@ func TestAdapterPauseCancel(t *testing.T) {
 }
 
 func TestAdapterStartConflictMapsErrConflict(t *testing.T) {
-	dl := &data.Download{ID: 71, Source: "http://example.com/file.bin", TargetPath: "/tmp"}
+	dl := &data.Download{ID: "71", Source: "http://example.com/file.bin", TargetPath: "/tmp"}
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		// addUri returns an RPC error that simulates a file-exists failure
 		rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Error: &rpcError{Code: 1, Message: "File already exists"}})
@@ -611,7 +611,7 @@ func TestAdapterStartConflictMapsErrConflict(t *testing.T) {
 }
 
 func TestAdapterResumeConflictMapsErrConflict(t *testing.T) {
-	dl := &data.Download{ID: 72, GID: "gid-72"}
+	dl := &data.Download{ID: "72", GID: "gid-72"}
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		// unpause returns conflict
 		rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Error: &rpcError{Code: 1, Message: "File exists"}})
@@ -623,7 +623,6 @@ func TestAdapterResumeConflictMapsErrConflict(t *testing.T) {
 		t.Fatalf("expected ErrConflict, got %v", err)
 	}
 }
-
 
 func TestAdapterCancelNotFoundMapsErrNotFound(t *testing.T) {
 	dl := &data.Download{GID: "gid-missing"}
@@ -641,12 +640,12 @@ func TestAdapterCancelNotFoundMapsErrNotFound(t *testing.T) {
 func TestAdapterHandleNotification(t *testing.T) {
 	events := make(chan downloader.Event, 2)
 	rep := downloader.NewChanReporter(events)
-	a := &Adapter{rep: rep, gidToID: map[string]int{"g1": 1, "g2": 2}, activeGIDs: map[string]struct{}{}, lastProg: map[string]downloader.Progress{}}
+	a := &Adapter{rep: rep, gidToID: map[string]string{"g1": "1", "g2": "2"}, activeGIDs: map[string]struct{}{}, lastProg: map[string]downloader.Progress{}}
 
 	// Complete event
 	a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadComplete", Params: []aria2.NotificationEvent{{GID: "g1"}}})
 	ev := <-events
-	if ev.Type != downloader.EventComplete || ev.ID != 1 || ev.GID != "g1" {
+	if ev.Type != downloader.EventComplete || ev.ID != "1" || ev.GID != "g1" {
 		t.Fatalf("unexpected event %#v", ev)
 	}
 	if _, ok := a.gidToID["g1"]; ok {
@@ -656,7 +655,7 @@ func TestAdapterHandleNotification(t *testing.T) {
 	// Error event
 	a.handleNotification(context.Background(), aria2.Notification{Method: "aria2.onDownloadError", Params: []aria2.NotificationEvent{{GID: "g2"}}})
 	ev = <-events
-	if ev.Type != downloader.EventFailed || ev.ID != 2 || ev.GID != "g2" {
+	if ev.Type != downloader.EventFailed || ev.ID != "2" || ev.GID != "g2" {
 		t.Fatalf("unexpected event %#v", ev)
 	}
 }
@@ -664,7 +663,7 @@ func TestAdapterHandleNotification(t *testing.T) {
 func TestAdapterMetadataCompleteTriggersFollowedBySwap(t *testing.T) {
 	// Start with a magnet where immediate followedBy is empty; later a completion
 	// notification for the metadata gid should cause a swap to the real gid.
-	dl := &data.Download{ID: 33, Source: "magnet:?xt=urn:btih:xyz&dn=Title", TargetPath: "/tmp"}
+	dl := &data.Download{ID: "33", Source: "magnet:?xt=urn:btih:xyz&dn=Title", TargetPath: "/tmp"}
 	call := 0
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		call++
