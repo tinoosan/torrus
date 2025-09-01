@@ -7,6 +7,7 @@ import (
     "testing"
 
     "github.com/tinoosan/torrus/internal/data"
+    "strings"
 )
 
 // 1) Keeps unrelated sidecars in shared directory.
@@ -29,12 +30,19 @@ func TestDelete_KeepsUnrelatedSidecars(t *testing.T) {
 
     if err := a.Delete(context.Background(), dl, true); err != nil { t.Fatalf("Delete: %v", err) }
 
-    // Only ep01.mkv is removed, and only ep01.mkv.aria2 sidecar is removed.
+    // Only ep01.mkv is removed
     if len(fake.removedAll) != 1 || fake.removedAll[0] != p {
         t.Fatalf("removedAll: %#v", fake.removedAll)
     }
-    if len(fake.removed) != 1 || fake.removed[0] != p+".aria2" {
-        t.Fatalf("removed: %#v", fake.removed)
+    // Filter to sidecar file removals (ignore directory prunes recorded via Remove)
+    var scs []string
+    for _, s := range fake.removed {
+        if strings.HasSuffix(s, ".aria2") || strings.HasSuffix(s, ".torrent") {
+            scs = append(scs, s)
+        }
+    }
+    if len(scs) != 1 || scs[0] != p+".aria2" {
+        t.Fatalf("sidecars removed: %#v", scs)
     }
 }
 
@@ -142,7 +150,13 @@ func TestDelete_AdjacentSidecarOnlyForIncludedFiles(t *testing.T) {
     a.fs = fake
     if err := a.Delete(context.Background(), dl, true); err != nil { t.Fatalf("Delete: %v", err) }
 
-    if len(fake.removed) != 1 || fake.removed[0] != ep2+".aria2" {
-        t.Fatalf("adjacent removals: %#v", fake.removed)
+    var scs2 []string
+    for _, s := range fake.removed {
+        if strings.HasSuffix(s, ".aria2") || strings.HasSuffix(s, ".torrent") {
+            scs2 = append(scs2, s)
+        }
+    }
+    if len(scs2) != 1 || scs2[0] != ep2+".aria2" {
+        t.Fatalf("adjacent sidecars removed: %#v", scs2)
     }
 }
