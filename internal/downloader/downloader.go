@@ -16,10 +16,9 @@ type Downloader interface {
 	Pause(ctx context.Context, d *data.Download) error
 	Resume(ctx context.Context, d *data.Download) error
 	Cancel(ctx context.Context, d *data.Download) error
-	// Purge removes on-disk files and control artifacts for the download.
-	// Implementations should best-effort cancel any active transfer and then
-	// delete associated data. It must be idempotent.
-	Purge(ctx context.Context, d *data.Download) error
+	// Delete cancels/stops the task and, if deleteFiles is true, removes
+	// payload files and any related control files from disk.
+	Delete(ctx context.Context, d *data.Download, deleteFiles bool) error
 }
 
 // EventSource is implemented by downloaders that emit asynchronous events.
