@@ -416,3 +416,53 @@ func TestPatchConflictPolicyReturns409(t *testing.T) {
 		t.Fatalf("expected 409, got %d", rr.Code)
 	}
 }
+
+func TestPatchReturnsUpdatedDownload(t *testing.T) {
+	t.Setenv("TORRUS_API_TOKEN", testToken)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rpo := repo.NewInMemoryDownloadRepo()
+	dlr := downloader.NewNoopDownloader()
+	svc := service.NewDownload(rpo, dlr)
+	h := router.New(logger, svc)
+
+	// Create download
+	body := bytes.NewBufferString(`{"source":"magnet:?xt=urn:btih:abc","targetPath":"/tmp"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/downloads", body)
+	authReq(req)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d", rr.Code)
+	}
+	var created map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&created)
+	id := created["id"].(string)
+
+	// Inject name and files in repo
+	_, _ = rpo.Update(context.Background(), id, func(d *internaldata.Download) error {
+		d.Name = "pretty"
+		d.Files = []internaldata.DownloadFile{{Path: "a.mkv", Length: 1}}
+		return nil
+	})
+
+	// Patch desired status
+	patchBody := bytes.NewBufferString(`{"desiredStatus":"Paused"}`)
+	req = httptest.NewRequest(http.MethodPatch, "/v1/downloads/"+id, patchBody)
+	authReq(req)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status=%d", rr.Code)
+	}
+	var got map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&got)
+	if got["name"].(string) != "pretty" {
+		t.Fatalf("name missing: %#v", got)
+	}
+	fs, ok := got["files"].([]any)
+	if !ok || len(fs) != 1 {
+		t.Fatalf("files missing: %#v", got["files"])
+	}
+}

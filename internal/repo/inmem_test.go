@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tinoosan/torrus/internal/data"
+	"github.com/tinoosan/torrus/internal/fp"
 )
 
 func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
@@ -58,7 +59,8 @@ func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 func TestInMemoryDownloadRepo_Update(t *testing.T) {
 	ctx := context.Background()
 	r := NewInMemoryDownloadRepo()
-	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t"})
+	fpv := fp.Fingerprint("s", "t")
+	d, _, _ := r.AddWithFingerprint(ctx, &data.Download{Source: "s", TargetPath: "t"}, fpv)
 
 	t.Run("noop", func(t *testing.T) {
 		before, _ := r.Get(ctx, d.ID)
@@ -74,6 +76,28 @@ func TestInMemoryDownloadRepo_Update(t *testing.T) {
 		again, _ := r.Get(ctx, d.ID)
 		if again.GID == "mut" {
 			t.Fatalf("clone not deep")
+		}
+	})
+
+	t.Run("mutate error", func(t *testing.T) {
+		before, _ := r.Get(ctx, d.ID)
+		oldFP := fp.Fingerprint(before.Source, before.TargetPath)
+		_, err := r.Update(ctx, d.ID, func(dl *data.Download) error {
+			dl.GID = "bad"
+			return errors.New("boom")
+		})
+		if err == nil {
+			t.Fatalf("expected error from mutate")
+		}
+		after, _ := r.Get(ctx, d.ID)
+		if after.GID == "bad" {
+			t.Fatalf("partial write occurred")
+		}
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("state changed on error")
+		}
+		if id := r.fpIndex[oldFP]; id != d.ID {
+			t.Fatalf("fingerprint index changed: %q", id)
 		}
 	})
 
@@ -123,6 +147,57 @@ func TestInMemoryDownloadRepo_Update(t *testing.T) {
 		}
 		if got.GID != "" {
 			t.Fatalf("gid not cleared")
+		}
+	})
+}
+
+func TestInMemoryDownloadRepo_Update_FingerprintIndex(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("update fingerprint", func(t *testing.T) {
+		r := NewInMemoryDownloadRepo()
+		d, _, _ := r.AddWithFingerprint(ctx, &data.Download{Source: "s1", TargetPath: "t1"}, fp.Fingerprint("s1", "t1"))
+		oldFP := fp.Fingerprint("s1", "t1")
+		_, err := r.Update(ctx, d.ID, func(dl *data.Download) error {
+			dl.Source = "s2"
+			dl.TargetPath = "t2"
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		newFP := fp.Fingerprint("s2", "t2")
+		if _, ok := r.fpIndex[oldFP]; ok {
+			t.Fatalf("old fingerprint still indexed")
+		}
+		if id := r.fpIndex[newFP]; id != d.ID {
+			t.Fatalf("fpIndex not updated")
+		}
+	})
+
+	t.Run("collision", func(t *testing.T) {
+		r := NewInMemoryDownloadRepo()
+		d1, _, _ := r.AddWithFingerprint(ctx, &data.Download{Source: "s1", TargetPath: "t1"}, fp.Fingerprint("s1", "t1"))
+		d2, _, _ := r.AddWithFingerprint(ctx, &data.Download{Source: "s2", TargetPath: "t2"}, fp.Fingerprint("s2", "t2"))
+		err := func() error {
+			_, err := r.Update(ctx, d1.ID, func(dl *data.Download) error {
+				dl.Source = d2.Source
+				dl.TargetPath = d2.TargetPath
+				return nil
+			})
+			return err
+		}()
+		if !errors.Is(err, data.ErrConflict) {
+			t.Fatalf("expected ErrConflict got %v", err)
+		}
+		fp1 := fp.Fingerprint("s1", "t1")
+		fp2 := fp.Fingerprint("s2", "t2")
+		if r.fpIndex[fp1] != d1.ID || r.fpIndex[fp2] != d2.ID {
+			t.Fatalf("fpIndex mutated on conflict")
+		}
+		got1, _ := r.Get(ctx, d1.ID)
+		if got1.Source != "s1" || got1.TargetPath != "t1" {
+			t.Fatalf("state changed on conflict: %#v", got1)
 		}
 	})
 }
@@ -218,6 +293,10 @@ func TestInMemoryDownloadRepo_Delete(t *testing.T) {
 	}
 	if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	if err := r.Delete(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound on second delete, got %v", err)
 	}
 }
 
