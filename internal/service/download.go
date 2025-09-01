@@ -1,11 +1,14 @@
 package service
 
 import (
-	"context"
-	"errors"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "errors"
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/downloader"
@@ -309,10 +312,10 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id string, status d
 // purge any on-disk artifacts; otherwise the download is merely cancelled. The
 // repository entry is removed at the end if all operations succeed.
 func (ds *download) Delete(ctx context.Context, id string, deleteFiles bool) error {
-	dl, err := ds.repo.Get(ctx, id)
-	if err != nil {
-		return err
-	}
+    dl, err := ds.repo.Get(ctx, id)
+    if err != nil {
+        return err
+    }
 
 	ds.startMu.Lock()
 	if cancel, ok := ds.startCancels[id]; ok {
@@ -321,13 +324,106 @@ func (ds *download) Delete(ctx context.Context, id string, deleteFiles bool) err
 	}
 	ds.startMu.Unlock()
 
-	if err := ds.dlr.Delete(ctx, dl, deleteFiles); err != nil && !isDownloaderNotFound(err) {
-		return err
-	}
+    if deleteFiles && dl.GID != "" {
+        // Snapshot files BEFORE cancel by asking downloader for file paths.
+        lister, ok := ds.dlr.(downloader.FileLister)
+        if !ok {
+            return fmt.Errorf("downloader does not support GetFiles")
+        }
+        files, ferr := lister.GetFiles(ctx, dl.GID)
+        if ferr != nil || len(files) == 0 {
+            if ferr == nil { ferr = fmt.Errorf("no files returned") }
+            return ferr
+        }
+        // Cancel regardless; treat not found as success for idempotency.
+        if derr := ds.dlr.Cancel(ctx, dl); derr != nil && !isDownloaderNotFound(derr) {
+            return derr
+        }
+        // Delete files and sidecars, then prune empty directories.
+        if err := deleteFilesAndPrune(files, dl.TargetPath); err != nil {
+            return err
+        }
+    } else {
+        // No file deletion requested: best-effort cancel, then proceed.
+        if derr := ds.dlr.Cancel(ctx, dl); derr != nil && !isDownloaderNotFound(derr) {
+            return derr
+        }
+    }
 
-	return ds.repo.Delete(ctx, id)
+    return ds.repo.Delete(ctx, id)
 }
 
 func isDownloaderNotFound(err error) bool {
-	return errors.Is(err, downloader.ErrNotFound)
+    return errors.Is(err, downloader.ErrNotFound)
+}
+
+// deleteFilesAndPrune removes the provided absolute file paths and common
+// sidecars ".aria2". It then prunes empty directories up to and including the
+// provided base directory (TargetPath). It enforces that files lie within base.
+func deleteFilesAndPrune(paths []string, base string) error {
+    base = filepath.Clean(strings.TrimSpace(base))
+    // Safety check helper: ensure path within base.
+    isSafe := func(p string) bool {
+        if base == "" {
+            return true
+        }
+        rel, err := filepath.Rel(base, p)
+        if err != nil { return false }
+        return !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
+    }
+
+    dirs := map[string]struct{}{}
+    for _, p := range paths {
+        if p == "" { continue }
+        clean := filepath.Clean(p)
+        if base != "" && !isSafe(clean) { continue }
+        info, err := os.Stat(clean)
+        if err == nil && info.IsDir() {
+            // If a directory was provided, remove it recursively to emulate
+            // multi-file torrent top-level removal, then mark its parent for pruning.
+            _ = os.RemoveAll(clean)
+            if dir := filepath.Dir(clean); dir != "." && dir != "/" {
+                dirs[dir] = struct{}{}
+            }
+        } else {
+            _ = os.Remove(clean)
+            _ = os.Remove(clean + ".aria2")
+            if dir := filepath.Dir(clean); dir != "." && dir != "/" {
+                dirs[dir] = struct{}{}
+            }
+        }
+    }
+    // Prune empty directories bottom-up
+    // Sort by depth (deepest first)
+    type item struct{ p string; depth int }
+    stack := make([]item, 0, len(dirs))
+    for d := range dirs {
+        depth := len(strings.Split(filepath.ToSlash(d), "/"))
+        stack = append(stack, item{p: d, depth: depth})
+    }
+    // simple insertion sort by depth desc (small set)
+    for i := 0; i < len(stack); i++ {
+        for j := i+1; j < len(stack); j++ {
+            if stack[j].depth > stack[i].depth {
+                stack[i], stack[j] = stack[j], stack[i]
+            }
+        }
+    }
+    for _, it := range stack {
+        d := it.p
+        if base != "" && !isSafe(d) { continue }
+        // Do not remove above base
+        if base != "" {
+            rel, _ := filepath.Rel(base, d)
+            if rel == "." || rel == "" {
+                // we are at base; leave pruning of base to caller's policy
+                continue
+            }
+        }
+        // Remove only if empty
+        entries, err := os.ReadDir(d)
+        if err != nil { continue }
+        if len(entries) == 0 { _ = os.Remove(d) }
+    }
+    return nil
 }
