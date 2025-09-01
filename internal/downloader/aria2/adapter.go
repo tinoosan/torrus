@@ -421,16 +421,26 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
     // Also attempt to remove the logical root directory or file named after dl.Name.
     // This covers cases where dl.Files are basenames but the payload lives under a folder.
     if dl.Name != "" {
-        // helper to append a candidate root safely
+        // helper: add a candidate root path for deletion
         addRoot := func(name string) {
             if name == "" { return }
             cand := filepath.Join(base, name)
             if !isSafe(cand) { return }
             files = append(files, filepath.Clean(cand))
         }
+        // Always consider the exact reported Name as a root candidate.
         addRoot(dl.Name)
-        // Try without leading bracketed tags (e.g. [METADATA])
-        addRoot(stripLeadingTags(dl.Name))
+
+        // For a leading-tag trimmed variant, only consider it a deletion root
+        // if we can verify ownership via the presence of a matching sidecar.
+        if trimmed := stripLeadingTags(dl.Name); trimmed != "" && trimmed != dl.Name {
+            cand := filepath.Join(base, trimmed)
+            if isSafe(cand) {
+                if _, err := os.Stat(cand + ".aria2"); err == nil {
+                    files = append(files, filepath.Clean(cand))
+                }
+            }
+        }
     }
 
     // Determine download root (directory containing payload files).
@@ -458,30 +468,22 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
     if root != base {
         sidecars[root+".aria2"] = struct{}{}
     }
-    // Also include base/Name.aria2 and variants as best-effort for folder/torrent sidecars.
+    // Also include base/Name.aria2 and a leading-tag-trimmed variant.
     if dl.Name != "" {
         baseName := dl.Name
         stripName := stripLeadingTags(dl.Name)
-        saneName := sanitizeName(dl.Name)
 
         sidecars[filepath.Join(base, baseName+".aria2")] = struct{}{}
         if stripName != "" && stripName != baseName {
             sidecars[filepath.Join(base, stripName+".aria2")] = struct{}{}
         }
-        if saneName != "" && saneName != baseName && saneName != stripName {
-            sidecars[filepath.Join(base, saneName+".aria2")] = struct{}{}
-        }
     }
     if isTorrentSource(dl.Source) && dl.Name != "" {
         baseName := dl.Name
         stripName := stripLeadingTags(dl.Name)
-        saneName := sanitizeName(dl.Name)
         sidecars[filepath.Join(base, baseName+".torrent")] = struct{}{}
         if stripName != "" && stripName != baseName {
             sidecars[filepath.Join(base, stripName+".torrent")] = struct{}{}
-        }
-        if saneName != "" && saneName != baseName && saneName != stripName {
-            sidecars[filepath.Join(base, saneName+".torrent")] = struct{}{}
         }
         if root != base {
             sidecars[root+".torrent"] = struct{}{}
@@ -552,26 +554,8 @@ func isTorrentSource(src string) bool {
 
 // sanitizeName strips bracketed tags like "[METADATA]" or "[TGx]" from names
 // and collapses whitespace. It is best-effort and safe for matching sidecars.
-func sanitizeName(name string) string {
-    if name == "" {
-        return ""
-    }
-    var b strings.Builder
-    depth := 0
-    for _, r := range name {
-        switch r {
-        case '[':
-            depth++
-        case ']':
-            if depth > 0 { depth-- }
-        default:
-            if depth == 0 { b.WriteRune(r) }
-        }
-    }
-    // collapse spaces
-    s := strings.Join(strings.Fields(b.String()), " ")
-    return strings.TrimSpace(s)
-}
+// sanitizeName removed per review; we must not delete sidecars for fully sanitized names
+// because that risks removing control files belonging to other downloads
 
 // stripLeadingTags removes one or more leading bracketed tags (e.g. "[METADATA] ")
 // while preserving any bracketed segments that appear later in the name.
