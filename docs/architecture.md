@@ -1,67 +1,62 @@
 # Architecture
 
-Torrus is composed of small layers wired through tiny interfaces.
-The typical request travels through the following components:
+## Who this is for
+New contributors who need an end-to-end picture before touching the code.
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Handler
-    participant Service
-    participant Repo
-    participant Downloader
-    participant Reconciler
-    Client->>Handler: HTTP request
-    Handler->>Service: validate & invoke
-    Service->>Repo: persist/read
-    Service->>Downloader: Start/Pause/Resume/Cancel
-    Downloader-->>Reconciler: events
-    Reconciler->>Repo: update state
-    Service-->>Handler: result
-    Handler-->>Client: HTTP response
+## What you'll learn
+Service boundaries, component responsibilities, concurrency patterns and
+where the canonical API spec lives.
+
+Torrus exposes a small HTTP API for orchestrating downloads. Handlers
+delegate to a service layer, which drives a downloader and persists
+state in an in-memory repository.
+
+```
++---------+      +-----------+      +--------------+      +-----------------+
+| Handlers| ---> |  Service  | ---> |  Downloader  | ---> |   External svc  |
+|  (v1)   |      | (usecases)|      | (aria2, noop)|      | (aria2 JSON-RPC)|
++----+----+      +-----+-----+      +------+-------+      +---------+-------+
+     |                  |                   |                        |
+     v                  v                   v                        |
++----+------------------+-------------------+------------------------+------+
+|                                Repo (in-mem)                              |
+|                (Update mutate-fn, Reader/Writer ports)                    |
++----------------------------------------------------------------------------+
+                             ^
+                             |
+                        +----+-----+
+                        |Reconciler|
+                        +----------+
 ```
 
-The event flow is asynchronous: downloaders report status changes via
-`Event` messages that the reconciler applies to the repository.
+> TODO: Mermaid version later
 
-## Responsibilities
+### Layer responsibilities
+- **Handlers** – HTTP routing, auth middleware and JSON encoding.
+- **Service** – business rules, idempotency and coordination of repo and
+  downloader actions.
+- **Repo** – in-memory persistence with `Update` mutation closures to
+  ensure atomic writes.
+- **Downloader** – pluggable adapter (`aria2`, `noop`) implementing
+  `Start`, `Pause`, `Resume`, `Cancel`, `Purge`.
+- **Reconciler** – consumes events from downloaders and updates the
+  repository accordingly.
 
-### API (v1 handlers)
-- HTTP routing and JSON marshaling.
-- Authentication, logging and basic validation via middleware.
+### Concurrency model
+The repository guards its slice with a `sync.RWMutex` and executes
+mutations while holding the lock. Downloaders emit events through a
+`Reporter` channel; the reconciler listens on that channel and serially
+applies updates via `Repo.Update`.
 
-### Middleware
-- Authentication checks.
-- Request/response logging.
+### OpenAPI
+The canonical spec lives in [`index.yaml`](../index.yaml) (see
+[openapi.md](openapi.md)). Fields such as `name` and `files[]` are
+read-only in responses.
 
-### Service
-- Orchestrates repository access and downloader actions.
-- Enforces business rules and idempotency.
-
-### Repo
-- Interfaces: `DownloadReader`, `DownloadWriter`, `DownloadFinder`.
-- In-memory implementation for development.
-- Uses an `Update` mutation closure to ensure atomic updates.
-
-### Downloader(s)
-- Interface with `Start`, `Pause`, `Resume`, `Cancel`, `Purge`.
-- Noop and aria2 adapters provided.
-- Optional `EventSource` emits events through a `Reporter`.
-
-### Reconciler
-- Consumes downloader events.
-- Applies status changes, GID swaps, and metadata updates.
-
-### aria2 Adapter
-- Translates downloader calls into aria2 JSON‑RPC requests.
-- Polls aria2 for progress and meta events.
-
-### Events / Reporter
-- `Reporter` publishes events, typically over a channel.
-- Events include progress, metadata, lifecycle transitions and GID updates.
+Continue with the [request flow](request-flow.md) and
+[downloader + reconciler](downloader-and-reconciler.md) docs for deeper
+dives.
 
 ## Versioning
-
-All API routes are versioned under `/v1`. New breaking changes will
-appear under a new prefix. The health check endpoint `/healthz` remains
-unversioned so infrastructure probes do not need to track API versions.
+All API routes are under `/v1`. The health check `/healthz` is left
+unversioned for infrastructure probes.

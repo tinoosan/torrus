@@ -1,19 +1,23 @@
 # Extending Torrus
 
-## Add a Downloader Adapter
+## Who this is for
+Engineers adding features or integrating new download backends.
+
+## What you'll learn
+Where to plug in new downloaders, handle fresh events and update the API spec.
+
+### Add a downloader
 1. Implement the [`Downloader`](packages.md#internaldownloader) interface.
-2. Emit events through a `Reporter` and optionally expose `Run(ctx)` to
-   satisfy `EventSource`.
-3. Wire the adapter in `cmd/main.go` based on an environment switch.
-4. Implement a `Purge` method for deleting on-disk files.
+2. Emit events via a `Reporter` and optionally implement `EventSource`.
+3. Wire the adapter in `cmd/main.go` behind `TORRUS_CLIENT`.
+4. Avoid touching handlers or the repo; the service and reconciler drive state.
 
-## Add Fields via Events
-- Extend `downloader.Event` with the new metadata.
-- Update the reconciler to persist the field.
-- Document the field in the API and OpenAPI spec.
+### New event types
+- Extend `downloader.Event` with the extra fields.
+- Update the [reconciler](downloader-and-reconciler.md) to persist them.
+- Document how the field surfaces in responses.
 
-## New Service Use‑Cases
-- Add methods to `internal/service` that express the use‑case.
-- Keep handlers thin: call the service and translate errors.
-- Avoid leaking repository or downloader details across layers by
-  introducing narrow interfaces where needed.
+### OpenAPI checklist
+- Edit [`index.yaml`](../index.yaml) to describe new routes or fields.
+- Mark read-only fields like `name` or `files[]` appropriately.
+- Regenerate or update examples and mention changes in [request flow](request-flow.md).
