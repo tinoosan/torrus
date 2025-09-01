@@ -902,11 +902,6 @@ func (a *Adapter) deriveName(ns *nameStatus, source string) string {
 
 // pollLoop periodically polls aria2 for status of all active GIDs and emits
 // progress events when values change. It stops when the context is done.
-func (a *Adapter) pollLoop(ctx context.Context) {
-    // Backward-compatible wrapper uses adapter logger
-    a.pollLoopWithLogger(ctx, a.log)
-}
-
 // pollLoopWithLogger is like pollLoop but logs with the provided logger.
 func (a *Adapter) pollLoopWithLogger(ctx context.Context, lg *slog.Logger) {
     ticker := time.NewTicker(time.Duration(a.pollMS) * time.Millisecond)

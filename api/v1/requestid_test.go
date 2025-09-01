@@ -4,9 +4,7 @@ import (
     "net/http"
     "net/http/httptest"
     "testing"
-    "context"
 
-    "github.com/tinoosan/torrus/internal/data"
     "github.com/tinoosan/torrus/internal/reqid"
 )
 
@@ -37,24 +35,7 @@ func TestRequestIDMiddleware_HonorsIncoming(t *testing.T) {
 }
 
 // stub service implementing service.Download and recording the context.
-type testDownloadSvc struct{ lastCtx string }
-
-func (t *testDownloadSvc) List(ctx context.Context) (data.Downloads, error) {
-    if id, ok := reqid.From(ctx); ok {
-        t.lastCtx = id
-    }
-    return data.Downloads{}, nil
-}
-func (t *testDownloadSvc) Get(ctx context.Context, id string) (*data.Download, error) {
-    return &data.Download{}, nil
-}
-func (t *testDownloadSvc) Add(ctx context.Context, d *data.Download) (*data.Download, bool, error) {
-    return &data.Download{}, true, nil
-}
-func (t *testDownloadSvc) UpdateDesiredStatus(ctx context.Context, id string, s data.DownloadStatus) (*data.Download, error) {
-    return &data.Download{}, nil
-}
-func (t *testDownloadSvc) Delete(ctx context.Context, id string, del bool) error { return nil }
+// no-op: previous testDownloadSvc removed; tests now assert middleware behavior directly
 
 // Smoke test: ensure middleware injects header and context seen by handler/service.
 func TestRequestID_PropagatesIntoHandlerContext(t *testing.T) {
