@@ -26,8 +26,8 @@ func setup(t *testing.T) http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	repo := repo.NewInMemoryDownloadRepo()
 	dlr := downloader.NewNoopDownloader()
-	svc := service.NewDownload(repo, dlr)
-	return router.New(logger, svc)
+    svc := service.NewDownload(repo, dlr)
+    return router.New(logger, svc, dlr)
 }
 
 func authReq(r *http.Request) {
@@ -273,7 +273,7 @@ func TestGetDownloadIncludesFiles(t *testing.T) {
 	rpo := repo.NewInMemoryDownloadRepo()
 	dlr := downloader.NewNoopDownloader()
 	svc := service.NewDownload(rpo, dlr)
-	h := router.New(logger, svc)
+    h := router.New(logger, svc, dlr)
 
 	// Seed a download with files
 	dl := &struct {
@@ -392,7 +392,7 @@ func TestPatchConflictPolicyReturns409(t *testing.T) {
 	rpo := repo.NewInMemoryDownloadRepo()
 	dlr := &conflictDL{}
 	svc := service.NewDownload(rpo, dlr)
-	h := router.New(logger, svc)
+    h := router.New(logger, svc, dlr)
 
 	// Create download via API
 	body := bytes.NewBufferString(`{"source":"http://example.com/file.bin","targetPath":"/tmp"}`)
@@ -425,7 +425,7 @@ func TestPatchReturnsUpdatedDownload(t *testing.T) {
 	rpo := repo.NewInMemoryDownloadRepo()
 	dlr := downloader.NewNoopDownloader()
 	svc := service.NewDownload(rpo, dlr)
-	h := router.New(logger, svc)
+    h := router.New(logger, svc, dlr)
 
 	// Create download
 	body := bytes.NewBufferString(`{"source":"magnet:?xt=urn:btih:abc","targetPath":"/tmp"}`)

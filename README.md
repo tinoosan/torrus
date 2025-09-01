@@ -140,10 +140,35 @@ Fields returned by the downloads API:
 | `desiredStatus` | string | Desired status. Same enum as `status`                                       |
 | `createdAt`     | string | RFC3339 timestamp when the download was created (read-only)                 |
 
-### Health
+### Health & Metrics
 
-**GET /healthz**  
-Unversioned endpoint returning `200 OK` and the text `ok`.
+- `GET /healthz` (liveness): always returns `200 OK` with body `ok`.
+- `GET /readyz` (readiness): returns `200 OK` when the active downloader is ready.
+  - When using aria2, Torrus performs a fast JSON‑RPC probe.
+  - When using the noop downloader, readiness returns `200 OK`.
+- `GET /metrics`: Prometheus metrics in the standard exposition format.
+
+Example Kubernetes probes:
+
+```
+livenessProbe:
+  httpGet: { path: /healthz, port: 9090 }
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet: { path: /readyz, port: 9090 }
+  initialDelaySeconds: 2
+  periodSeconds: 5
+```
+
+Prometheus scrape example:
+
+```
+scrape_configs:
+  - job_name: torrus
+    static_configs:
+      - targets: ['torrus:9090']
+```
 
 ## Example Requests
 

@@ -19,6 +19,7 @@ import (
 	"github.com/tinoosan/torrus/internal/aria2"
 	"github.com/tinoosan/torrus/internal/downloader"
 	aria2dl "github.com/tinoosan/torrus/internal/downloader/aria2"
+	"github.com/tinoosan/torrus/internal/metrics"
 	"github.com/tinoosan/torrus/internal/reconciler"
 	"github.com/tinoosan/torrus/internal/repo"
 	"github.com/tinoosan/torrus/internal/router"
@@ -116,6 +117,9 @@ func main() {
 
     downloadSvc := service.NewDownload(downloadRepo, dlr)
 
+	// Register Prometheus metrics collectors
+	metrics.Register()
+
 	rec := reconciler.New(logger, downloadRepo, events)
 	rec.Run()
 
@@ -124,7 +128,7 @@ func main() {
 		go src.Run(context.Background())
 	}
 
-	r := router.New(logger, downloadSvc)
+	r := router.New(logger, downloadSvc, dlr)
 
 	server := &http.Server{
 		Addr:         ":9090",

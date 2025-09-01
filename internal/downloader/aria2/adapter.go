@@ -23,8 +23,10 @@ import (
     "github.com/tinoosan/torrus/internal/aria2" // your Client
     "github.com/tinoosan/torrus/internal/data"
     "github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
+    "github.com/tinoosan/torrus/internal/metrics"
     "github.com/tinoosan/torrus/internal/reqid"
     "github.com/google/uuid"
+    "github.com/prometheus/client_golang/prometheus"
 )
 
 type fsOps interface {
@@ -125,6 +127,8 @@ type fileStatus struct {
 }
 
 func (a *Adapter) call(ctx context.Context, method string, params []interface{}) (json.RawMessage, error) {
+    timer := prometheus.NewTimer(metrics.Aria2RPCLatency.WithLabelValues(method))
+    defer timer.ObserveDuration()
 	body, _ := json.Marshal(rpcReq{
 		Jsonrpc: "2.0",
 		Method:  method,
@@ -138,30 +142,44 @@ func (a *Adapter) call(ctx context.Context, method string, params []interface{})
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := a.cl.HTTP().Do(req)
-	if err != nil {
-		return nil, err
-	}
+    resp, err := a.cl.HTTP().Do(req)
+    if err != nil {
+        metrics.Aria2RPCErrors.WithLabelValues(method).Inc()
+        return nil, err
+    }
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("aria2 http %d: %s", resp.StatusCode, string(b))
-	}
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        b, _ := io.ReadAll(resp.Body)
+        metrics.Aria2RPCErrors.WithLabelValues(method).Inc()
+        return nil, fmt.Errorf("aria2 http %d: %s", resp.StatusCode, string(b))
+    }
 
 	b, _ := io.ReadAll(resp.Body)
 
 	var rr rpcResp
-	err = json.Unmarshal(b, &rr)
-	if err != nil {
-		return nil, fmt.Errorf("aria2 rpc decode: %w (%s)", err, string(b))
-	}
-	if rr.Error != nil {
-		return nil, fmt.Errorf("aria2 rpc error %d: %s", rr.Error.Code, rr.Error.Message)
-	}
-	return rr.Result, nil
+    err = json.Unmarshal(b, &rr)
+    if err != nil {
+        metrics.Aria2RPCErrors.WithLabelValues(method).Inc()
+        return nil, fmt.Errorf("aria2 rpc decode: %w (%s)", err, string(b))
+    }
+    if rr.Error != nil {
+        metrics.Aria2RPCErrors.WithLabelValues(method).Inc()
+        return nil, fmt.Errorf("aria2 rpc error %d: %s", rr.Error.Code, rr.Error.Message)
+    }
+    return rr.Result, nil
+}
+
+// Ping performs a lightweight RPC to check aria2 liveness/readiness.
+func (a *Adapter) Ping(ctx context.Context) error {
+    params := []interface{}{}
+    if tok := a.tokenParam(); tok != nil {
+        params = append(params, tok...)
+    }
+    _, err := a.call(ctx, "aria2.getVersion", params)
+    return err
 }
 
 // helper: token parameter if secret set (aria2 expects "token:<secret>" as first param)
@@ -209,7 +227,9 @@ func (a *Adapter) Start(ctx context.Context, dl *data.Download) (string, error) 
 	a.mu.Lock()
 	a.gidToID[gid] = dl.ID
 	a.activeGIDs[gid] = struct{}{}
-	a.mu.Unlock()
+    // update active downloads gauge
+    metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+    a.mu.Unlock()
 	if a.rep != nil {
 		a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventStart})
 	}
@@ -266,7 +286,9 @@ func (a *Adapter) Resume(ctx context.Context, dl *data.Download) error {
 			a.lastProg[real] = lp
 			delete(a.lastProg, gid)
 		}
-		a.mu.Unlock()
+        // update active downloads gauge
+        metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+        a.mu.Unlock()
 		// notify repo to update gid
 		if a.rep != nil {
 			a.rep.Report(downloader.Event{ID: dl.ID, GID: gid, Type: downloader.EventGIDUpdate, NewGID: real})
@@ -327,7 +349,9 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 			delete(a.gidToID, dl.GID)
 			delete(a.activeGIDs, dl.GID)
 			delete(a.lastProg, dl.GID)
-			a.mu.Unlock()
+    // update active downloads gauge
+    metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+    a.mu.Unlock()
 			return downloader.ErrNotFound
 		}
 		return err
@@ -339,7 +363,9 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	delete(a.gidToID, dl.GID)
 	delete(a.activeGIDs, dl.GID)
 	delete(a.lastProg, dl.GID)
-	a.mu.Unlock()
+    // update active downloads gauge
+    metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+    a.mu.Unlock()
 	return nil
 }
 
@@ -753,7 +779,9 @@ func (a *Adapter) handleNotification(ctx context.Context, n aria2.Notification) 
 					a.lastProg[real] = lp
 					delete(a.lastProg, p.GID)
 				}
-				a.mu.Unlock()
+            // update active downloads gauge
+            metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+            a.mu.Unlock()
 				if a.rep != nil {
 					a.rep.Report(downloader.Event{ID: id, GID: p.GID, Type: downloader.EventGIDUpdate, NewGID: real})
 				}
@@ -776,14 +804,18 @@ func (a *Adapter) handleNotification(ctx context.Context, n aria2.Notification) 
 			delete(a.gidToID, p.GID)
 			delete(a.activeGIDs, p.GID)
 			delete(a.lastProg, p.GID)
-			a.mu.Unlock()
+            // update active downloads gauge
+            metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+            a.mu.Unlock()
 		case "aria2.onDownloadError":
 			a.emitFailed(id, p.GID)
 			a.mu.Lock()
 			delete(a.gidToID, p.GID)
 			delete(a.activeGIDs, p.GID)
 			delete(a.lastProg, p.GID)
-			a.mu.Unlock()
+            // update active downloads gauge
+            metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
+            a.mu.Unlock()
 		case "aria2.onDownloadStart":
 			if prog, err := a.tellStatus(ctx, p.GID); err == nil && prog != nil {
 				a.emitProgress(id, p.GID, *prog)
@@ -803,6 +835,8 @@ func (a *Adapter) handleNotification(ctx context.Context, n aria2.Notification) 
 			delete(a.gidToID, p.GID)
 			delete(a.activeGIDs, p.GID)
 			delete(a.lastProg, p.GID)
+			// update active downloads gauge
+			metrics.ActiveDownloads.Set(float64(len(a.activeGIDs)))
 			a.mu.Unlock()
 		}
 	}

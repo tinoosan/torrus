@@ -4,10 +4,12 @@ import (
     "context"
     "log/slog"
     "sync"
+    "strings"
 
     "github.com/google/uuid"
     "github.com/tinoosan/torrus/internal/data"
     "github.com/tinoosan/torrus/internal/downloader"
+    "github.com/tinoosan/torrus/internal/metrics"
     "github.com/tinoosan/torrus/internal/repo"
 )
 
@@ -68,10 +70,12 @@ func (r *Reconciler) Stop() {
 }
 
 func (r *Reconciler) handle(e downloader.Event) {
-	var (
-		status        data.DownloadStatus
-		checkTerminal bool
-	)
+    // Record event type for observability
+    metrics.DownloadEvents.WithLabelValues(strings.ToLower(string(e.Type))).Inc()
+    var (
+        status        data.DownloadStatus
+        checkTerminal bool
+    )
 	switch e.Type {
 	case downloader.EventStart:
 		dl, err := r.repo.Get(r.ctx, e.ID)
