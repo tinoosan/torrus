@@ -13,7 +13,9 @@ import (
 // New sets up the application routes and required middleware.
 func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 
-	r := mux.NewRouter()
+    r := mux.NewRouter()
+    // Request ID must be first so all downstream middleware/handlers see it
+    r.Use(v1.RequestID)
 	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, err := w.Write([]byte("ok"))
@@ -24,8 +26,8 @@ func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 
 	downloadHandler := v1.NewDownloadHandler(logger, downloadSvc)
 
-	r.Use(downloadHandler.Log)
-	r.Use(auth.Middleware)
+    r.Use(downloadHandler.Log)
+    r.Use(auth.Middleware)
 
 	api := r.PathPrefix("/v1").Subrouter()
 

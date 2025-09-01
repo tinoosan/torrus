@@ -1,13 +1,14 @@
 package v1
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"strings"
-	"time"
+    "context"
+    "encoding/json"
+    "net/http"
+    "strings"
+    "time"
 
-	"github.com/tinoosan/torrus/internal/data"
+    "github.com/tinoosan/torrus/internal/data"
+    "github.com/tinoosan/torrus/internal/reqid"
 )
 
 func MiddlewareDownloadValidation(next http.Handler) http.Handler {
@@ -84,33 +85,38 @@ func MiddlewarePatchDesired(next http.Handler) http.Handler {
 }
 
 func (dh *DownloadHandler) Log(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		startTime := time.Now()
-		rw := &rwLogger{ResponseWriter: w}
-		next.ServeHTTP(rw, r)
-		if rw.status == 0 {
-			rw.status = http.StatusOK
-		}
-		timeElapsed := time.Since(startTime)
-		hErr := rw.err
-		if hErr != nil {
-			dh.l.Error(hErr.Error(),
-				"method", r.Method,
-				"url", r.URL.Path,
-				"status", rw.status,
-				"remote", r.RemoteAddr,
-				"ua", r.UserAgent(),
-				"dur_ms", timeElapsed.Milliseconds(),
-				"bytes", rw.bytes)
-			return
-		}
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        startTime := time.Now()
+        rw := &rwLogger{ResponseWriter: w}
+        next.ServeHTTP(rw, r)
+        if rw.status == 0 {
+            rw.status = http.StatusOK
+        }
+        timeElapsed := time.Since(startTime)
+        hErr := rw.err
+        // Enrich logger with request_id when available
+        log := dh.l
+        if id, ok := reqid.From(r.Context()); ok {
+            log = log.With("request_id", id)
+        }
+        if hErr != nil {
+            log.Error(hErr.Error(),
+                "method", r.Method,
+                "url", r.URL.Path,
+                "status", rw.status,
+                "remote", r.RemoteAddr,
+                "ua", r.UserAgent(),
+                "dur_ms", timeElapsed.Milliseconds(),
+                "bytes", rw.bytes)
+            return
+        }
 
-		dh.l.Info("", "method", r.Method,
-			"url", r.URL.Path,
-			"status", rw.status,
-			"remote", r.RemoteAddr,
-			"ua", r.UserAgent(),
-			"dur_ms", timeElapsed.Milliseconds(),
-			"bytes", rw.bytes)
-	})
+        log.Info("", "method", r.Method,
+            "url", r.URL.Path,
+            "status", rw.status,
+            "remote", r.RemoteAddr,
+            "ua", r.UserAgent(),
+            "dur_ms", timeElapsed.Milliseconds(),
+            "bytes", rw.bytes)
+    })
 }
