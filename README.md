@@ -45,6 +45,17 @@ Torrus exposes a JSON-over-HTTP interface for orchestrating downloads.
 - **Pluggable downloader** – The API delegates download work to a backend component. A no-op backend is used by default, but alternate downloaders (e.g., Aria2) can be enabled through configuration.
 - **Port** – The service listens on port `9090` by default.
 
+### Correlation IDs
+All HTTP requests support an optional `X-Request-ID` header for log correlation. If you provide one, the same value appears in server logs as `request_id` and is echoed back in the response header. If you omit it, the server generates a UUID and returns it.
+
+Example:
+
+```
+curl -H 'X-Request-ID: my-debug-id' http://localhost:9090/v1/downloads -i
+```
+
+Use this value to trace activity across handlers, services, repos, and any downloader work started by the request.
+
 ## Configuration
 
 Environment variables:
