@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/tinoosan/torrus/internal/data"
 )
 
@@ -19,13 +20,13 @@ func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if d1.ID != 1 {
-		t.Fatalf("first id = %d", d1.ID)
+	if _, err := uuid.Parse(d1.ID); err != nil {
+		t.Fatalf("invalid uuid: %v", err)
 	}
 
 	d2, _ := r.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2"})
-	if d2.ID != 2 {
-		t.Fatalf("second id = %d", d2.ID)
+	if d1.ID == d2.ID {
+		t.Fatalf("ids not unique")
 	}
 
 	list, err := r.List(ctx)
@@ -34,7 +35,7 @@ func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 	}
 
 	// ensure clones returned
-	list[0].ID = 99
+	list[0].ID = "mut"
 	again, _ := r.List(ctx)
 	if again[0].ID != d1.ID {
 		t.Fatalf("repo mutated via clone")
@@ -48,7 +49,7 @@ func TestInMemoryDownloadRepo_AddListGet(t *testing.T) {
 		t.Fatalf("Get mismatch")
 	}
 
-	_, err = r.Get(ctx, 999)
+	_, err = r.Get(ctx, uuid.NewString())
 	if !errors.Is(err, data.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound")
 	}
@@ -177,13 +178,8 @@ func TestInMemoryDownloadRepo_Concurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < n; i++ {
-			_, err := repo.List(ctx)
-			if err != nil {
+			if _, err := repo.List(ctx); err != nil {
 				t.Errorf("List error: %v", err)
-			}
-			_, err = repo.Get(ctx, i)
-			if err != nil && !errors.Is(err, data.ErrNotFound) {
-				t.Errorf("Get error: %v", err)
 			}
 		}
 	}()
@@ -235,8 +231,8 @@ func TestAddWithFingerprint_IdempotentAndGetByFingerprint(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("expected created=true got err=%v created=%v", err, created)
 	}
-	if got.ID == 0 {
-		t.Fatalf("id not assigned")
+	if _, err := uuid.Parse(got.ID); err != nil {
+		t.Fatalf("id not assigned: %v", err)
 	}
 
 	// Second insert with same fingerprint
@@ -246,7 +242,7 @@ func TestAddWithFingerprint_IdempotentAndGetByFingerprint(t *testing.T) {
 		t.Fatalf("expected created=false got err=%v created=%v", err, created2)
 	}
 	if got2.ID != got.ID {
-		t.Fatalf("expected same id got %d vs %d", got2.ID, got.ID)
+		t.Fatalf("expected same id got %s vs %s", got2.ID, got.ID)
 	}
 
 	// Lookup by fingerprint
@@ -262,7 +258,7 @@ func TestAddWithFingerprint_ConcurrentSingleCreate(t *testing.T) {
 
 	const gor = 50
 	var wg sync.WaitGroup
-	ids := make(chan int, gor)
+	ids := make(chan string, gor)
 	for i := 0; i < gor; i++ {
 		wg.Add(1)
 		go func() {
@@ -279,12 +275,12 @@ func TestAddWithFingerprint_ConcurrentSingleCreate(t *testing.T) {
 	wg.Wait()
 	close(ids)
 
-	first := -1
+	first := ""
 	for id := range ids {
-		if first == -1 {
+		if first == "" {
 			first = id
 		} else if id != first {
-			t.Fatalf("saw different ids: %d vs %d", id, first)
+			t.Fatalf("saw different ids: %s vs %s", id, first)
 		}
 	}
 

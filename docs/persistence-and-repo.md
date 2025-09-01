@@ -22,7 +22,7 @@ state. Always work on the clone returned by repo methods.
 - GID is assigned on first `Start` and cleared on `Cancelled` or purge.
 
 ### ID & timestamps
-IDs auto-increment inside the repo (`nextID`). `CreatedAt` defaults in the
+IDs are UUID v4 strings generated on insert. `CreatedAt` defaults in the
 service when zero so tests can omit it safely.
 
 See [idempotency](idempotency.md) for fingerprinting logic and

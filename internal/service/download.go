@@ -16,13 +16,13 @@ import (
 // Download provides high-level operations for managing downloads.
 type Download interface {
 	List(ctx context.Context) (data.Downloads, error)
-	Get(ctx context.Context, id int) (*data.Download, error)
+	Get(ctx context.Context, id string) (*data.Download, error)
 	// Add inserts a new download or returns an existing one if it already
 	// exists (idempotent). The returned 'created' flag indicates whether a new
 	// row was created (true) or an existing one was returned (false).
 	Add(ctx context.Context, d *data.Download) (*data.Download, bool, error)
-	UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error)
-	Delete(ctx context.Context, id int, deleteFiles bool) error
+	UpdateDesiredStatus(ctx context.Context, id string, status data.DownloadStatus) (*data.Download, error)
+	Delete(ctx context.Context, id string, deleteFiles bool) error
 }
 
 var (
@@ -41,7 +41,7 @@ type download struct {
 	dlr  downloader.Downloader
 
 	startMu      sync.Mutex
-	startCancels map[int]context.CancelFunc
+	startCancels map[string]context.CancelFunc
 }
 
 // NewDownload constructs a Download service backed by the given repository and downloader.
@@ -52,7 +52,7 @@ func NewDownload(r repo.DownloadRepo, dlr downloader.Downloader) Download {
 	if !ok {
 		ext = &extendedRepoAdapter{DownloadRepo: r}
 	}
-	return &download{repo: ext, dlr: dlr, startCancels: make(map[int]context.CancelFunc)}
+	return &download{repo: ext, dlr: dlr, startCancels: make(map[string]context.CancelFunc)}
 }
 
 // extendedRepoAdapter bridges a DownloadRepo that lacks DownloadFinder
@@ -72,7 +72,7 @@ func (ds *download) List(ctx context.Context) (data.Downloads, error) {
 }
 
 // Get retrieves a download by its ID.
-func (ds *download) Get(ctx context.Context, id int) (*data.Download, error) {
+func (ds *download) Get(ctx context.Context, id string) (*data.Download, error) {
 	return ds.repo.Get(ctx, id)
 }
 
@@ -153,7 +153,7 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 
 // UpdateDesiredStatus changes the desired state of a download and performs the
 // necessary side effects to reach it.
-func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data.DownloadStatus) (*data.Download, error) {
+func (ds *download) UpdateDesiredStatus(ctx context.Context, id string, status data.DownloadStatus) (*data.Download, error) {
 	// Guard invalid desired statuses up front (service-level policy).
 	switch status {
 	case data.StatusActive, data.StatusResume, data.StatusPaused, data.StatusCancelled:
@@ -308,7 +308,7 @@ func (ds *download) UpdateDesiredStatus(ctx context.Context, id int, status data
 // Delete removes a download. If deleteFiles is true, the downloader is asked to
 // purge any on-disk artifacts; otherwise the download is merely cancelled. The
 // repository entry is removed at the end if all operations succeed.
-func (ds *download) Delete(ctx context.Context, id int, deleteFiles bool) error {
+func (ds *download) Delete(ctx context.Context, id string, deleteFiles bool) error {
 	dl, err := ds.repo.Get(ctx, id)
 	if err != nil {
 		return err
