@@ -58,5 +58,6 @@ Continue with the [request flow](request-flow.md) and
 dives.
 
 ## Versioning
-All API routes are under `/v1`. The health check `/healthz` is left
-unversioned for infrastructure probes.
+All API routes are under `/v1`. The health and readiness endpoints
+(`/healthz`, `/readyz`) and the Prometheus endpoint (`/metrics`) are
+left unversioned for infrastructure probes and scraping.
