@@ -509,8 +509,8 @@ func TestAdapterPurgeSkipsSymlinkTargets(t *testing.T) {
 		}
 	})
 	a := newTestAdapter(t, "", rt)
-	if err := a.Purge(context.Background(), dl); err != nil {
-		t.Fatalf("Purge: %v", err)
+	if err := a.Delete(context.Background(), dl, true); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
 	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("symlink not removed")
