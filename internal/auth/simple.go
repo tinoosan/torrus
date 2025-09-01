@@ -16,11 +16,11 @@ import (
 func Middleware(next http.Handler) http.Handler {
 	token := os.Getenv("TORRUS_API_TOKEN")
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/metrics" {
+            next.ServeHTTP(w, r)
+            return
+        }
 
 		// Expect: Authorization: Bearer <token>
 		authz := r.Header.Get("Authorization")

@@ -46,4 +46,6 @@ curl -X DELETE http://localhost:9090/v1/downloads/1 \
 Smoke-test the health endpoint:
 ```bash
 curl http://localhost:9090/healthz
+curl http://localhost:9090/readyz
+curl -s http://localhost:9090/metrics | head
 ```

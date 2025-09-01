@@ -21,6 +21,7 @@ contributors can quickly become productive.
 - [OpenAPI](openapi.md)
 - [Security & Ops](security-and-ops.md)
 - [Operations: Correlation & Deletion Safety](operations.md)
+- [Observability](observability.md)
 
 Keep docs close to code—when you change contracts or behaviors,
 update the relevant document in the same pull request.
