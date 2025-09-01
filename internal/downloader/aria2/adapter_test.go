@@ -1016,6 +1016,24 @@ func TestDelete_TrimmedLeadingTag_SidecarRemoved(t *testing.T) {
     if _, err := os.Stat(filepath.Join(base, real+".aria2")); !os.IsNotExist(err) { t.Fatalf("root sidecar not removed: %v", err) }
 }
 
+func TestDelete_TrimmedRoot_NoSidecar_OwnershipByFiles(t *testing.T) {
+    t.Parallel()
+    ctx := context.Background()
+    base := t.TempDir()
+    real := "Show.S01.[TGx]"
+    root := filepath.Join(base, real)
+    if err := os.MkdirAll(filepath.Join(root, "s"), 0o755); err != nil { t.Fatal(err) }
+    fname := "E01.mkv"
+    if err := os.WriteFile(filepath.Join(root, "s", fname), []byte("x"), 0o644); err != nil { t.Fatal(err) }
+
+    // No root .aria2 sidecar present; rely on file ownership check
+    dl := &data.Download{ID: "idY", Source: "magnet:?xt=urn:btih:xyz", TargetPath: base, Name: "[METADATA] "+real,
+        Files: []data.DownloadFile{{Path: fname}}}
+    a := newAdapterNoRPC(t)
+    if err := a.Delete(ctx, dl, true); err != nil { t.Fatalf("Delete: %v", err) }
+    if _, err := os.Stat(root); !os.IsNotExist(err) { t.Fatalf("root dir not removed: %v", err) }
+}
+
 func TestAdapterMetadataCompleteTriggersFollowedBySwap(t *testing.T) {
 	// Start with a magnet where immediate followedBy is empty; later a completion
 	// notification for the metadata gid should cause a swap to the real gid.

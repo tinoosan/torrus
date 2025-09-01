@@ -436,7 +436,31 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
         if trimmed := stripLeadingTags(dl.Name); trimmed != "" && trimmed != dl.Name {
             cand := filepath.Join(base, trimmed)
             if isSafe(cand) {
+                owned := false
                 if _, err := os.Stat(cand + ".aria2"); err == nil {
+                    owned = true
+                } else if len(dl.Files) > 0 {
+                    // Verify ownership by checking if the directory contains any known
+                    // file basenames from this download's metadata. Walk stops on first match.
+                    baseSet := make(map[string]struct{}, len(dl.Files))
+                    for _, f := range dl.Files {
+                        if b := filepath.Base(f.Path); b != "" {
+                            baseSet[b] = struct{}{}
+                        }
+                    }
+                    stop := errors.New("stop")
+                    _ = filepath.Walk(cand, func(p string, info os.FileInfo, err error) error {
+                        if err != nil { return nil }
+                        if !info.IsDir() {
+                            if _, ok := baseSet[filepath.Base(p)]; ok {
+                                owned = true
+                                return stop
+                            }
+                        }
+                        return nil
+                    })
+                }
+                if owned {
                     files = append(files, filepath.Clean(cand))
                 }
             }
