@@ -163,6 +163,11 @@ paths:
       tags: [Downloads]
       summary: Delete a download (optionally remove files)
       operationId: deleteDownload
+      description: |
+        Removes a download. When `deleteFiles=true`, Torrus deletes payload files and prunes empty directories with safeguards:
+        - Never deletes the base `targetPath` itself; only paths strictly under it.
+        - Only removes control sidecars (.aria2/.torrent) proven to belong to this download (exact name match, adjacent to known payloads, or trimmed-name with strong proof).
+        - Deduplicates delete candidates to avoid repeated operations.
       parameters:
         - $ref: '#/components/parameters/RequestID'
       requestBody:
@@ -177,6 +182,7 @@ paths:
                   type: boolean
                   description: |
                     If true, remove on-disk files and control artifacts (e.g. .aria2) before deleting the entry.
+                    Sidecars (.aria2/.torrent) are removed only when ownership can be proven (exact name match, adjacent to payloads, or trimmed-name with proof). The base targetPath is never deleted.
                     If false, only cancel/stop and delete the entry; files are left in place.
                   default: false
       responses:

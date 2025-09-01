@@ -56,6 +56,19 @@ curl -H 'X-Request-ID: my-debug-id' http://localhost:9090/v1/downloads -i
 
 Use this value to trace activity across handlers, services, repos, and any downloader work started by the request.
 
+### Deletion Semantics & Safety
+When deleting a download with `deleteFiles=true`, Torrus applies strict safeguards:
+
+- Base directory is never deleted: only paths strictly under `targetPath/` are eligible. If `targetPath` is empty, only absolute, cleaned paths are considered.
+- Path safety: all candidate paths are normalized and must remain within `targetPath/`.
+- Sidecar ownership rules: control files like `.aria2` and `.torrent` are removed only when ownership is proven:
+  - Exact-name match: files named exactly `base/<dl.Name>.aria2` and, for torrents, `base/<dl.Name>.torrent`.
+  - Adjacent to payload: `<file>.aria2` next to files that came from `aria2.getFiles` or `dl.Files` for this download.
+  - Trimmed leading-tags: `<trimmed>.aria2`/`.torrent` only if we can strongly prove ownership (existing matching sidecar or at least two basename matches found under the candidate folder).
+- Deduplication: duplicate delete candidates are removed to avoid repeated log lines and filesystem calls.
+- Directory pruning: empty parent directories are pruned deepest-first. A best‑effort removal of a root `.aria2` is attempted only when that root is proven to belong to the download.
+- Symlinks: if a payload path is a symlink, the link itself is removed; the symlink target is not touched.
+
 ## Configuration
 
 Environment variables:
