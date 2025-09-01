@@ -38,16 +38,16 @@ func (osFS) RemoveAll(p string) error { return os.RemoveAll(p) }
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
 // It translates Torrus download operations into aria2 RPC calls.
 type Adapter struct {
-	cl  *aria2.Client
-	rep downloader.Reporter
+    cl  *aria2.Client
+    rep downloader.Reporter
 
 	mu         sync.RWMutex
 	gidToID    map[string]string
 	activeGIDs map[string]struct{}
 	lastProg   map[string]downloader.Progress
 	pollMS     int
-	log        *slog.Logger
-	fs         fsOps
+    log        *slog.Logger
+    fs         fsOps
 }
 
 // NewAdapter creates a new Adapter using the provided aria2 client and reporter.
@@ -58,12 +58,19 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 			poll = n
 		}
 	}
-	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default(), fs: osFS{}}
+    return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default(), fs: osFS{}}
 }
 
 var _ downloader.Downloader = (*Adapter)(nil)
 var _ downloader.EventSource = (*Adapter)(nil)
 var _ downloader.FileLister = (*Adapter)(nil)
+
+// SetLogger allows wiring a shared application logger into the adapter.
+func (a *Adapter) SetLogger(l *slog.Logger) {
+    if l != nil {
+        a.log = l
+    }
+}
 
 // --- JSON-RPC wire types ---
 
@@ -350,9 +357,12 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		return nil
 	}
 
-	// Determine files to remove: prefer aria2.getFiles paths, fall back to
-	// dl.Files, then best-effort using TargetPath + Name.
-	paths := a.getFilePaths(ctx, dl.GID)
+    // Determine files to remove: prefer aria2.getFiles paths (only if we still
+    // have a GID), fall back to dl.Files, then best-effort using TargetPath + Name.
+    var paths []string
+    if dl.GID != "" {
+        paths = a.getFilePaths(ctx, dl.GID)
+    }
 	if len(paths) == 0 && len(dl.Files) > 0 {
 		for _, f := range dl.Files {
 			paths = append(paths, f.Path)
@@ -382,9 +392,9 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		return strings.HasPrefix(p, baseWithSep)
 	}
 
-	var files []string
-	sidecars := map[string]struct{}{}
-	dirs := map[string]struct{}{}
+    var files []string
+    sidecars := map[string]struct{}{}
+    dirs := map[string]struct{}{}
 
 	// Normalize and validate file paths, collect sidecars and parent dirs.
 	for _, p := range paths {
@@ -406,10 +416,25 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 			dirs[d] = struct{}{}
 			d = filepath.Dir(d)
 		}
-	}
+    }
 
-	// Determine download root (directory containing payload files).
-	root := base
+    // Also attempt to remove the logical root directory or file named after dl.Name.
+    // This covers cases where dl.Files are basenames but the payload lives under a folder.
+    if dl.Name != "" {
+        // helper to append a candidate root safely
+        addRoot := func(name string) {
+            if name == "" { return }
+            cand := filepath.Join(base, name)
+            if !isSafe(cand) { return }
+            files = append(files, filepath.Clean(cand))
+        }
+        addRoot(dl.Name)
+        // Try without leading bracketed tags (e.g. [METADATA])
+        addRoot(stripLeadingTags(dl.Name))
+    }
+
+    // Determine download root (directory containing payload files).
+    root := base
 	if len(files) > 0 {
 		segs := make(map[string]struct{})
 		for _, p := range files {
@@ -430,15 +455,38 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 	}
 
 	// Add potential sidecar files adjacent to the root directory.
-	if root != base {
-		sidecars[root+".aria2"] = struct{}{}
-	}
-	if isTorrentSource(dl.Source) && dl.Name != "" {
-		sidecars[filepath.Join(base, dl.Name+".torrent")] = struct{}{}
-		if root != base {
-			sidecars[root+".torrent"] = struct{}{}
-		}
-	}
+    if root != base {
+        sidecars[root+".aria2"] = struct{}{}
+    }
+    // Also include base/Name.aria2 and variants as best-effort for folder/torrent sidecars.
+    if dl.Name != "" {
+        baseName := dl.Name
+        stripName := stripLeadingTags(dl.Name)
+        saneName := sanitizeName(dl.Name)
+
+        sidecars[filepath.Join(base, baseName+".aria2")] = struct{}{}
+        if stripName != "" && stripName != baseName {
+            sidecars[filepath.Join(base, stripName+".aria2")] = struct{}{}
+        }
+        if saneName != "" && saneName != baseName && saneName != stripName {
+            sidecars[filepath.Join(base, saneName+".aria2")] = struct{}{}
+        }
+    }
+    if isTorrentSource(dl.Source) && dl.Name != "" {
+        baseName := dl.Name
+        stripName := stripLeadingTags(dl.Name)
+        saneName := sanitizeName(dl.Name)
+        sidecars[filepath.Join(base, baseName+".torrent")] = struct{}{}
+        if stripName != "" && stripName != baseName {
+            sidecars[filepath.Join(base, stripName+".torrent")] = struct{}{}
+        }
+        if saneName != "" && saneName != baseName && saneName != stripName {
+            sidecars[filepath.Join(base, saneName+".torrent")] = struct{}{}
+        }
+        if root != base {
+            sidecars[root+".torrent"] = struct{}{}
+        }
+    }
 
 	// Convert sidecar set to slice for processing.
 	var scs []string
@@ -450,14 +498,14 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		scs = append(scs, s)
 	}
 
-	// Delete payload files.
-	for _, p := range files {
-		a.log.Info("delete file", "path", p)
-		if err := a.fs.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			a.log.Error("delete file", "path", p, "err", err)
-			return fmt.Errorf("delete %s: %w", p, err)
-		}
-	}
+    // Delete payload files or directories using fs abstraction.
+    for _, p := range files {
+        a.log.Info("delete file", "path", p)
+        if err := a.fs.RemoveAll(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+            a.log.Error("delete file", "path", p, "err", err)
+            return fmt.Errorf("delete %s: %w", p, err)
+        }
+    }
 
 	// Delete sidecar files (.aria2, .torrent).
 	for _, s := range scs {
@@ -481,36 +529,62 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		dirList = append(dirList, d)
 	}
 	sort.Slice(dirList, func(i, j int) bool { return len(dirList[i]) > len(dirList[j]) })
-	for _, d := range dirList {
-		a.log.Info("prune dir", "path", d)
-		if err := a.fs.Remove(d); err != nil {
-			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTEMPTY) {
-				continue
-			}
-			a.log.Error("prune dir", "path", d, "err", err)
-			return fmt.Errorf("delete %s: %w", d, err)
-		}
-
-		if fi, err := os.Lstat(d); err == nil {
-			if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
-				_ = os.RemoveAll(d)
-			} else {
-				_ = os.Remove(d)
-			}
-		} else {
-			_ = os.Remove(d)
-		}
-
-		_ = os.Remove(d + ".aria2")
-
-	}
+    for _, d := range dirList {
+        a.log.Info("prune dir", "path", d)
+        if err := a.fs.Remove(d); err != nil {
+            if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTEMPTY) {
+                continue
+            }
+            a.log.Error("prune dir", "path", d, "err", err)
+            return fmt.Errorf("delete %s: %w", d, err)
+        }
+        // Best-effort remove any leftover sidecar next to the pruned dir.
+        _ = a.fs.Remove(d + ".aria2")
+    }
 
 	return nil
 }
 
 func isTorrentSource(src string) bool {
-	s := strings.ToLower(src)
-	return strings.HasPrefix(s, "magnet:") || strings.HasSuffix(s, ".torrent")
+    s := strings.ToLower(src)
+    return strings.HasPrefix(s, "magnet:") || strings.HasSuffix(s, ".torrent")
+}
+
+// sanitizeName strips bracketed tags like "[METADATA]" or "[TGx]" from names
+// and collapses whitespace. It is best-effort and safe for matching sidecars.
+func sanitizeName(name string) string {
+    if name == "" {
+        return ""
+    }
+    var b strings.Builder
+    depth := 0
+    for _, r := range name {
+        switch r {
+        case '[':
+            depth++
+        case ']':
+            if depth > 0 { depth-- }
+        default:
+            if depth == 0 { b.WriteRune(r) }
+        }
+    }
+    // collapse spaces
+    s := strings.Join(strings.Fields(b.String()), " ")
+    return strings.TrimSpace(s)
+}
+
+// stripLeadingTags removes one or more leading bracketed tags (e.g. "[METADATA] ")
+// while preserving any bracketed segments that appear later in the name.
+func stripLeadingTags(name string) string {
+    s := strings.TrimSpace(name)
+    for strings.HasPrefix(s, "[") {
+        if i := strings.IndexRune(s, ']'); i >= 0 {
+            s = strings.TrimSpace(s[i+1:])
+        } else {
+            break
+        }
+    }
+    return s
 }
 
 // EmitComplete can be used by callers to signal that a download finished
