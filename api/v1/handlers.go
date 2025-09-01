@@ -200,7 +200,7 @@ func (dh *DownloadHandler) DeleteDownload(w http.ResponseWriter, r *http.Request
 			return
 		default:
 			markErr(w, err)
-			http.Error(w, "failed to delete", http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}

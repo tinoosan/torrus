@@ -8,7 +8,7 @@ The downloader interface, aria2 specifics, reporter events and how the
 reconciler mutates repository state.
 
 ### Downloader contract
-Downloaders expose `Start`, `Pause`, `Cancel`, `Resume` and `Purge`. They
+Downloaders expose `Start`, `Pause`, `Cancel`, `Resume` and `Delete`. They
 operate on immutable snapshots of `Download` objects. Adapters may also
 satisfy `EventSource` and emit events through a `Reporter` channel.
 
@@ -17,7 +17,7 @@ satisfy `EventSource` and emit events through a `Reporter` channel.
 - `Resume` → `aria2.unpause`
 - `Pause`  → `aria2.pause`
 - `Cancel` → `aria2.forceRemove`
-- `Purge`  → `aria2.removeDownloadResult`
+- `Delete`  → `aria2.removeDownloadResult`
 - Polling (`ARIA2_POLL_MS`) fills in progress if notifications are silent.
 
 ### Reporter events

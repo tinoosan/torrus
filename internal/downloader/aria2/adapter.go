@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +23,16 @@ import (
 	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
 )
 
+type fsOps interface {
+	Remove(string) error
+	RemoveAll(string) error
+}
+
+type osFS struct{}
+
+func (osFS) Remove(p string) error    { return os.Remove(p) }
+func (osFS) RemoveAll(p string) error { return os.RemoveAll(p) }
+
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
 // It translates Torrus download operations into aria2 RPC calls.
 type Adapter struct {
@@ -34,6 +45,7 @@ type Adapter struct {
 	lastProg   map[string]downloader.Progress
 	pollMS     int
 	log        *slog.Logger
+	fs         fsOps
 }
 
 // NewAdapter creates a new Adapter using the provided aria2 client and reporter.
@@ -44,7 +56,7 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 			poll = n
 		}
 	}
-	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default()}
+	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default(), fs: osFS{}}
 }
 
 var _ downloader.Downloader = (*Adapter)(nil)
@@ -319,31 +331,62 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	return nil
 }
 
-// Purge removes on-disk files and any aria2 result for the download. It first
-// attempts to cancel the transfer, then deletes all known payload and control
-// files. All steps are best-effort and idempotent.
-func (a *Adapter) Purge(ctx context.Context, dl *data.Download) error {
+// Delete cancels the download, clears aria2 result state and optionally removes
+// payload files and adjacent .aria2 control files. If deleteFiles is true and
+// any file removal fails, the first error is returned.
+func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles bool) error {
 	if dl.GID != "" {
-		// Best-effort cancel; ignore "not found" errors.
-		_ = a.Cancel(ctx, dl)
-
-		// Remove download result to clean aria2 session.
+		if err := a.Cancel(ctx, dl); err != nil && !errors.Is(err, downloader.ErrNotFound) {
+			return err
+		}
+		// Remove download result to clean aria2 session (best effort).
 		_, _ = a.call(ctx, "aria2.removeDownloadResult", append(a.tokenParam(), dl.GID))
 	}
 
-	// Gather file paths from aria2 when possible.
-	files := a.getFiles(ctx, dl.GID)
-	if len(files) == 0 && len(dl.Files) > 0 {
-		files = dl.Files
+	if !deleteFiles {
+		return nil
 	}
 
-	for _, f := range files {
-		p := f.Path
-		if !filepath.IsAbs(p) && dl.TargetPath != "" {
-			p = filepath.Join(dl.TargetPath, p)
+	// Determine files to remove: prefer aria2.getFiles paths, fall back to
+	// dl.Files, then best-effort using TargetPath + Name.
+	paths := a.getFilePaths(ctx, dl.GID)
+	if len(paths) == 0 && len(dl.Files) > 0 {
+		for _, f := range dl.Files {
+			paths = append(paths, f.Path)
 		}
-		_ = os.Remove(p)
-		_ = os.Remove(p + ".aria2")
+	}
+	if len(paths) == 0 && dl.TargetPath != "" && dl.Name != "" {
+		paths = []string{dl.Name}
+	}
+
+	base := filepath.Clean(dl.TargetPath)
+	for _, p := range paths {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(base, p)
+		}
+		p = filepath.Clean(p)
+		if base != "" {
+			b := base
+			if !strings.HasSuffix(b, string(os.PathSeparator)) {
+				b += string(os.PathSeparator)
+			}
+			if !strings.HasPrefix(p, b) && p != base {
+				return fmt.Errorf("refusing to delete outside base: %s", p)
+			}
+		}
+		info, err := os.Stat(p)
+		if err == nil && info.IsDir() {
+			if err := a.fs.RemoveAll(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("delete %s: %w", p, err)
+			}
+		} else {
+			if err := a.fs.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("delete %s: %w", p, err)
+			}
+			if err := a.fs.Remove(p + ".aria2"); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("delete %s: %w", p+".aria2", err)
+			}
+		}
 	}
 
 	return nil
@@ -542,6 +585,31 @@ func (a *Adapter) getFiles(ctx context.Context, gid string) []data.DownloadFile 
 			continue
 		}
 		out = append(out, data.DownloadFile{Path: base, Length: parse(f.Length), Completed: parse(f.CompletedLength)})
+	}
+	return out
+}
+
+// getFilePaths queries aria2.getFiles and returns the raw paths as reported by
+// aria2. It returns nil on error.
+func (a *Adapter) getFilePaths(ctx context.Context, gid string) []string {
+	params := make([]interface{}, 0, 2)
+	if tok := a.tokenParam(); tok != nil {
+		params = append(params, tok...)
+	}
+	params = append(params, gid)
+	res, err := a.call(ctx, "aria2.getFiles", params)
+	if err != nil {
+		return nil
+	}
+	var files []fileStatus
+	if json.Unmarshal(res, &files) != nil || len(files) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		if f.Path != "" {
+			out = append(out, f.Path)
+		}
 	}
 	return out
 }

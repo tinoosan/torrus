@@ -245,7 +245,7 @@ func TestAdapterPauseAndCancel(t *testing.T) {
 	}
 }
 
-func TestAdapterPurgeDeletesFiles(t *testing.T) {
+func TestAdapterDeleteDeletesFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	file := filepath.Join(tmpDir, "a.mkv")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
@@ -287,14 +287,60 @@ func TestAdapterPurgeDeletesFiles(t *testing.T) {
 		}
 	})
 	a := newTestAdapter(t, "", rt)
-	if err := a.Purge(context.Background(), dl); err != nil {
-		t.Fatalf("Purge: %v", err)
+	fake := &fakeFS{}
+	a.fs = fake
+	if err := a.Delete(context.Background(), dl, true); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("file not removed")
+	if len(fake.removed) != 2 || fake.removed[0] != file {
+		t.Fatalf("unexpected removed files: %#v", fake.removed)
 	}
-	if _, err := os.Stat(file + ".aria2"); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("control file not removed")
+	if len(fake.removedAll) != 0 {
+		t.Fatalf("expected no RemoveAll calls")
+	}
+}
+
+type fakeFS struct {
+	removed    []string
+	removedAll []string
+}
+
+func (f *fakeFS) Remove(p string) error {
+	f.removed = append(f.removed, p)
+	return nil
+}
+func (f *fakeFS) RemoveAll(p string) error {
+	f.removedAll = append(f.removedAll, p)
+	return nil
+}
+
+func TestAdapterDeleteSafety(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl := &data.Download{ID: "1", GID: "gid1", TargetPath: tmpDir}
+	call := 0
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		call++
+		b, _ := io.ReadAll(r.Body)
+		var req rpcReq
+		_ = json.Unmarshal(b, &req)
+		switch call {
+		case 1:
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 2:
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		case 3:
+			result := []map[string]any{{"path": "/etc/passwd", "length": "1", "completedLength": "1"}}
+			rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: must(json.Marshal(result))})
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+		default:
+			return nil, nil
+		}
+	})
+	a := newTestAdapter(t, "", rt)
+	if err := a.Delete(context.Background(), dl, true); err == nil {
+		t.Fatalf("expected error due to unsafe path")
 	}
 }
 

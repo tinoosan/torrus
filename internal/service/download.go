@@ -321,14 +321,8 @@ func (ds *download) Delete(ctx context.Context, id string, deleteFiles bool) err
 	}
 	ds.startMu.Unlock()
 
-	if deleteFiles {
-		if err := ds.dlr.Purge(ctx, dl); err != nil && !isDownloaderNotFound(err) {
-			return err
-		}
-	} else {
-		if err := ds.dlr.Cancel(ctx, dl); err != nil && !isDownloaderNotFound(err) {
-			return err
-		}
+	if err := ds.dlr.Delete(ctx, dl, deleteFiles); err != nil && !isDownloaderNotFound(err) {
+		return err
 	}
 
 	return ds.repo.Delete(ctx, id)

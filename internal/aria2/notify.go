@@ -41,7 +41,7 @@ func (c *Client) Notifications(ctx context.Context) (<-chan Notification, error)
 	ch := make(chan Notification, 8)
 	go func() {
 		defer close(ch)
-		defer conn.Close(websocket.StatusNormalClosure, "done")
+		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "done") }()
 		for {
 			_, data, err := conn.Read(ctx)
 			if err != nil {

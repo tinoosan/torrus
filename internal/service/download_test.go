@@ -16,15 +16,16 @@ type stubDownloader struct {
 	pauseFn  func(ctx context.Context, d *data.Download) error
 	resumeFn func(ctx context.Context, d *data.Download) error
 	cancelFn func(ctx context.Context, d *data.Download) error
-	purgeFn  func(ctx context.Context, d *data.Download) error
+	deleteFn func(ctx context.Context, d *data.Download, deleteFiles bool) error
 
-	started    bool
-	startCount int
-	startedCh  chan struct{}
-	paused     bool
-	resumed    bool
-	cancelled  bool
-	purged     bool
+	started      bool
+	startCount   int
+	startedCh    chan struct{}
+	paused       bool
+	resumed      bool
+	cancelled    bool
+	deleted      bool
+	deletedFiles bool
 }
 
 func (s *stubDownloader) Start(ctx context.Context, d *data.Download) (string, error) {
@@ -63,10 +64,11 @@ func (s *stubDownloader) Cancel(ctx context.Context, d *data.Download) error {
 	return nil
 }
 
-func (s *stubDownloader) Purge(ctx context.Context, d *data.Download) error {
-	s.purged = true
-	if s.purgeFn != nil {
-		return s.purgeFn(ctx, d)
+func (s *stubDownloader) Delete(ctx context.Context, d *data.Download, deleteFiles bool) error {
+	s.deleted = true
+	s.deletedFiles = deleteFiles
+	if s.deleteFn != nil {
+		return s.deleteFn(ctx, d, deleteFiles)
 	}
 	return nil
 }
@@ -348,42 +350,55 @@ func TestDownloadService_Delete(t *testing.T) {
 	r := repo.NewInMemoryDownloadRepo()
 	d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g"})
 
-	t.Run("cancel only", func(t *testing.T) {
+	t.Run("delete record only", func(t *testing.T) {
 		dlr := &stubDownloader{}
 		svc := NewDownload(r, dlr)
 		if err := svc.Delete(ctx, d.ID, false); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
-		if !dlr.cancelled {
-			t.Fatalf("expected Cancel to be called")
+		if !dlr.deleted || dlr.deletedFiles {
+			t.Fatalf("expected Delete(false); got deleted=%v files=%v", dlr.deleted, dlr.deletedFiles)
 		}
 		if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
 			t.Fatalf("expected repo deletion, got %v", err)
 		}
 	})
 
-	t.Run("purge", func(t *testing.T) {
-		// recreate download
+	t.Run("delete with files", func(t *testing.T) {
 		d2, _ := r.Add(ctx, &data.Download{Source: "s2", TargetPath: "t2", GID: "g2"})
 		dlr := &stubDownloader{}
 		svc := NewDownload(r, dlr)
 		if err := svc.Delete(ctx, d2.ID, true); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
-		if !dlr.purged || dlr.cancelled {
-			t.Fatalf("expected Purge only; got purged=%v cancelled=%v", dlr.purged, dlr.cancelled)
+		if !dlr.deleted || !dlr.deletedFiles {
+			t.Fatalf("expected Delete(true); got deleted=%v files=%v", dlr.deleted, dlr.deletedFiles)
 		}
 	})
 
-	t.Run("cancel without gid", func(t *testing.T) {
+	t.Run("delete without gid", func(t *testing.T) {
 		d3, _ := r.Add(ctx, &data.Download{Source: "s3", TargetPath: "t3"})
 		dlr := &stubDownloader{}
 		svc := NewDownload(r, dlr)
 		if err := svc.Delete(ctx, d3.ID, false); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
-		if !dlr.cancelled {
-			t.Fatalf("expected Cancel to be called even without gid")
+		if !dlr.deleted {
+			t.Fatalf("expected Delete to be called even without gid")
+		}
+	})
+
+	t.Run("delete files error", func(t *testing.T) {
+		d4, _ := r.Add(ctx, &data.Download{Source: "s4", TargetPath: "t4"})
+		dlr := &stubDownloader{deleteFn: func(ctx context.Context, d *data.Download, deleteFiles bool) error {
+			return errors.New("boom")
+		}}
+		svc := NewDownload(r, dlr)
+		if err := svc.Delete(ctx, d4.ID, true); err == nil {
+			t.Fatalf("expected error")
+		}
+		if _, err := r.Get(ctx, d4.ID); err != nil {
+			t.Fatalf("expected record retained, got %v", err)
 		}
 	})
 
