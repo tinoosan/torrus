@@ -101,14 +101,15 @@ func main() {
 	var dlr downloader.Downloader
 	switch os.Getenv("TORRUS_CLIENT") {
 	case "aria2":
-		aria2Client, err := aria2.NewClientFromEnv()
-		if err != nil {
-			fmt.Println("Error:", err)
-			dlr = downloader.NewNoopDownloader()
-		} else {
-			a := aria2dl.NewAdapter(aria2Client, rep)
-			dlr = a
-		}
+        aria2Client, err := aria2.NewClientFromEnv()
+        if err != nil {
+            fmt.Println("Error:", err)
+            dlr = downloader.NewNoopDownloader()
+        } else {
+            a := aria2dl.NewAdapter(aria2Client, rep)
+            a.SetLogger(logger)
+            dlr = a
+        }
 	default:
 		dlr = downloader.NewNoopDownloader()
 	}

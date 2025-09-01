@@ -356,15 +356,15 @@ func TestDownloadService_Delete(t *testing.T) {
         if err := svc.Delete(ctx, d.ID, false); err != nil {
             t.Fatalf("Delete: %v", err)
         }
-        if !dlr.cancelled {
-            t.Fatalf("expected Cancel to be called")
+        if !dlr.deleted {
+            t.Fatalf("expected downloader.Delete to be called")
         }
         if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) {
             t.Fatalf("expected repo deletion, got %v", err)
         }
     })
 
-    // file deletion flows are covered in download_delete_test.go
+    // deletion with file cleanup is verified by the downloader adapter tests
 
 	t.Run("not found", func(t *testing.T) {
 		dlr := &stubDownloader{}
@@ -373,4 +373,58 @@ func TestDownloadService_Delete(t *testing.T) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
 		}
 	})
+}
+
+// --- Consolidated delete delegation tests ---
+
+type dlStub struct {
+    cancelErr error
+    deleted   bool
+    gotCancel bool
+}
+
+func (s *dlStub) Start(ctx context.Context, d *data.Download) (string, error) { return "", nil }
+func (s *dlStub) Pause(ctx context.Context, d *data.Download) error { return nil }
+func (s *dlStub) Resume(ctx context.Context, d *data.Download) error { return nil }
+func (s *dlStub) Cancel(ctx context.Context, d *data.Download) error { s.gotCancel = true; return s.cancelErr }
+func (s *dlStub) Delete(ctx context.Context, d *data.Download, deleteFiles bool) error { s.deleted = true; return nil }
+
+func TestServiceDelete_DelegatesAndRemovesRepo(t *testing.T) {
+    ctx := context.Background()
+    r := repo.NewInMemoryDownloadRepo()
+    tmp := t.TempDir()
+    d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: tmp, GID: "gid"})
+
+    dl := &dlStub{}
+    svc := NewDownload(r, dl)
+    if err := svc.Delete(ctx, d.ID, true); err != nil { t.Fatalf("Delete: %v", err) }
+
+    if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) { t.Fatalf("record still present") }
+    if !dl.deleted { t.Fatalf("expected downloader.Delete to be called") }
+    if dl.gotCancel { t.Fatalf("service should not call Cancel directly") }
+}
+
+func TestServiceDelete_NoFilesFlag_StillDeletesRepo(t *testing.T) {
+    ctx := context.Background()
+    r := repo.NewInMemoryDownloadRepo()
+    base := t.TempDir()
+    d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: base, GID: "g"})
+
+    dl := &dlStub{}
+    svc := NewDownload(r, dl)
+    if err := svc.Delete(ctx, d.ID, false); err != nil { t.Fatalf("Delete: %v", err) }
+
+    if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) { t.Fatalf("record still present") }
+    if !dl.deleted { t.Fatalf("expected downloader.Delete to be called") }
+}
+
+func TestServiceDelete_CancelOnly_Mode(t *testing.T) {
+    ctx := context.Background()
+    r := repo.NewInMemoryDownloadRepo()
+    d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "/tmp", GID: "gid"})
+    dl := &dlStub{}
+    svc := NewDownload(r, dl)
+    if err := svc.Delete(ctx, d.ID, false); err != nil { t.Fatalf("Delete: %v", err) }
+    if !dl.deleted { t.Fatalf("expected downloader.Delete to be called") }
+    if _, err := r.Get(ctx, d.ID); !errors.Is(err, data.ErrNotFound) { t.Fatalf("record still present") }
 }
