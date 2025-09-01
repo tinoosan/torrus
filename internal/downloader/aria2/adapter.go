@@ -362,6 +362,9 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 	}
 
 	base := filepath.Clean(dl.TargetPath)
+	if dl.TargetPath == "" {
+		base = ""
+	}
 
 	// Helper to ensure a path is within the base directory.
 	baseWithSep := base
@@ -396,7 +399,7 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 
 		d := filepath.Dir(p)
 		for {
-			if d == base {
+			if d == base || d == string(os.PathSeparator) || d == "." {
 				break
 			}
 			dirs[d] = struct{}{}
@@ -487,17 +490,17 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 			return fmt.Errorf("delete %s: %w", d, err)
 		}
 
-		if fi, err := os.Lstat(p); err == nil {
+		if fi, err := os.Lstat(d); err == nil {
 			if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
-				_ = os.RemoveAll(p)
+				_ = os.RemoveAll(d)
 			} else {
-				_ = os.Remove(p)
+				_ = os.Remove(d)
 			}
 		} else {
-			_ = os.Remove(p)
+			_ = os.Remove(d)
 		}
 
-		_ = os.Remove(p + ".aria2")
+		_ = os.Remove(d + ".aria2")
 
 	}
 
