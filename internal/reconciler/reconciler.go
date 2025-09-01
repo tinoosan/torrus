@@ -1,13 +1,14 @@
 package reconciler
 
 import (
-	"context"
-	"log/slog"
-	"sync"
+    "context"
+    "log/slog"
+    "sync"
 
-	"github.com/tinoosan/torrus/internal/data"
-	"github.com/tinoosan/torrus/internal/downloader"
-	"github.com/tinoosan/torrus/internal/repo"
+    "github.com/google/uuid"
+    "github.com/tinoosan/torrus/internal/data"
+    "github.com/tinoosan/torrus/internal/downloader"
+    "github.com/tinoosan/torrus/internal/repo"
 )
 
 // Reconciler consumes downloader events and updates repository state.
@@ -33,13 +34,16 @@ func New(log *slog.Logger, repo repo.DownloadRepo, events <-chan downloader.Even
 
 // Run starts the reconciliation loop.
 func (r *Reconciler) Run() {
-	r.stop = make(chan struct{})
-	r.ctx, r.cancel = context.WithCancel(r.ctx)
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		for {
-			select {
+    r.stop = make(chan struct{})
+    r.ctx, r.cancel = context.WithCancel(r.ctx)
+    // Tag this run with a stable operation_id for easier correlation.
+    opID := uuid.NewString()
+    r.log = r.log.With("operation_id", opID)
+    r.wg.Add(1)
+    go func() {
+        defer r.wg.Done()
+        for {
+            select {
 			case <-r.stop:
 				return
 			case e, ok := <-r.events:

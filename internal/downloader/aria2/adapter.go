@@ -1,28 +1,30 @@
 package aria2dl
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	neturl "net/url"
-	"os"
-	"path"
-	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "log/slog"
+    "net/http"
+    neturl "net/url"
+    "os"
+    "path"
+    "path/filepath"
+    "sort"
+    "strconv"
+    "strings"
+    "sync"
+    "syscall"
+    "time"
 
-	"github.com/tinoosan/torrus/internal/aria2" // your Client
-	"github.com/tinoosan/torrus/internal/data"
-	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
+    "github.com/tinoosan/torrus/internal/aria2" // your Client
+    "github.com/tinoosan/torrus/internal/data"
+    "github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
+    "github.com/tinoosan/torrus/internal/reqid"
+    "github.com/google/uuid"
 )
 
 type fsOps interface {
@@ -535,23 +537,29 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		scs = append(scs, s)
 	}
 
+    // Prepare request-scoped logger if request_id is present.
+    log := a.log
+    if rid, ok := reqid.From(ctx); ok {
+        log = log.With("request_id", rid)
+    }
+
     // Delete payload files or directories using fs abstraction.
     for _, p := range files {
-        a.log.Info("delete file", "path", p)
+        log.Info("delete file", "path", p)
         if err := a.fs.RemoveAll(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-            a.log.Error("delete file", "path", p, "err", err)
+            log.Error("delete file", "path", p, "err", err)
             return fmt.Errorf("delete %s: %w", p, err)
         }
     }
 
 	// Delete sidecar files (.aria2, .torrent).
-	for _, s := range scs {
-		a.log.Info("delete sidecar", "path", s)
-		if err := a.fs.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
-			a.log.Error("delete sidecar", "path", s, "err", err)
-			return fmt.Errorf("delete %s: %w", s, err)
-		}
-	}
+    for _, s := range scs {
+        log.Info("delete sidecar", "path", s)
+        if err := a.fs.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
+            log.Error("delete sidecar", "path", s, "err", err)
+            return fmt.Errorf("delete %s: %w", s, err)
+        }
+    }
 
 	// Build list of directories to prune, deepest first.
 	if root != base {
@@ -567,12 +575,12 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 	}
 	sort.Slice(dirList, func(i, j int) bool { return len(dirList[i]) > len(dirList[j]) })
     for _, d := range dirList {
-        a.log.Info("prune dir", "path", d)
+        log.Info("prune dir", "path", d)
         if err := a.fs.Remove(d); err != nil {
             if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTEMPTY) {
                 continue
             }
-            a.log.Error("prune dir", "path", d, "err", err)
+            log.Error("prune dir", "path", d, "err", err)
             return fmt.Errorf("delete %s: %w", d, err)
         }
         // Best-effort remove any leftover sidecar next to the pruned dir.
@@ -631,23 +639,26 @@ func (a *Adapter) emitProgress(id string, gid string, p downloader.Progress) {
 
 // Run subscribes to aria2 notifications and emits corresponding downloader events.
 func (a *Adapter) Run(ctx context.Context) {
-	ch, err := a.cl.Notifications(ctx)
-	if err != nil {
-		return
-	}
-	// Start poller goroutine for continuous progress updates
-	go a.pollLoop(ctx)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case n, ok := <-ch:
-			if !ok {
-				return
-			}
-			a.handleNotification(ctx, n)
-		}
-	}
+    // Tag this run with a stable operation_id for correlation.
+    opID := uuid.NewString()
+    lg := a.log.With("operation_id", opID)
+    ch, err := a.cl.Notifications(ctx)
+    if err != nil {
+        return
+    }
+    // Start poller goroutine for continuous progress updates
+    go a.pollLoopWithLogger(ctx, lg)
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case n, ok := <-ch:
+            if !ok {
+                return
+            }
+            a.handleNotification(ctx, n)
+        }
+    }
 }
 
 func (a *Adapter) handleNotification(ctx context.Context, n aria2.Notification) {
@@ -891,44 +902,45 @@ func (a *Adapter) deriveName(ns *nameStatus, source string) string {
 
 // pollLoop periodically polls aria2 for status of all active GIDs and emits
 // progress events when values change. It stops when the context is done.
-func (a *Adapter) pollLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Duration(a.pollMS) * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// snapshot active gids
-			a.mu.RLock()
-			gids := make([]string, 0, len(a.activeGIDs))
-			for gid := range a.activeGIDs {
-				gids = append(gids, gid)
-			}
-			a.mu.RUnlock()
-			for _, gid := range gids {
-				a.mu.RLock()
-				id, ok := a.gidToID[gid]
-				last := a.lastProg[gid]
-				a.mu.RUnlock()
-				if !ok {
-					continue
-				}
-				prog, err := a.tellStatus(ctx, gid)
-				if err != nil {
-					if a.log != nil {
-						a.log.Warn("aria2 tellStatus error", "gid", gid, "err", err)
-					}
-					continue
-				}
-				if last.Completed == prog.Completed && last.Speed == prog.Speed {
-					continue
-				}
-				a.emitProgress(id, gid, *prog)
-				a.mu.Lock()
-				a.lastProg[gid] = *prog
-				a.mu.Unlock()
-			}
-		}
-	}
+// pollLoopWithLogger is like pollLoop but logs with the provided logger.
+func (a *Adapter) pollLoopWithLogger(ctx context.Context, lg *slog.Logger) {
+    ticker := time.NewTicker(time.Duration(a.pollMS) * time.Millisecond)
+    defer ticker.Stop()
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            // snapshot active gids
+            a.mu.RLock()
+            gids := make([]string, 0, len(a.activeGIDs))
+            for gid := range a.activeGIDs {
+                gids = append(gids, gid)
+            }
+            a.mu.RUnlock()
+            for _, gid := range gids {
+                a.mu.RLock()
+                id, ok := a.gidToID[gid]
+                last := a.lastProg[gid]
+                a.mu.RUnlock()
+                if !ok {
+                    continue
+                }
+                prog, err := a.tellStatus(ctx, gid)
+                if err != nil {
+                    if lg != nil {
+                        lg.Warn("aria2 tellStatus error", "gid", gid, "err", err)
+                    }
+                    continue
+                }
+                if last.Completed == prog.Completed && last.Speed == prog.Speed {
+                    continue
+                }
+                a.emitProgress(id, gid, *prog)
+                a.mu.Lock()
+                a.lastProg[gid] = *prog
+                a.mu.Unlock()
+            }
+        }
+    }
 }
