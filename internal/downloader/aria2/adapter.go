@@ -379,18 +379,22 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 		base = ""
 	}
 
-	// Helper to ensure a path is within the base directory.
+	// Helper to ensure a path is within the base directory (but not equal to it).
 	baseWithSep := base
 	if baseWithSep != "" && !strings.HasSuffix(baseWithSep, string(os.PathSeparator)) {
 		baseWithSep += string(os.PathSeparator)
 	}
 	isSafe := func(p string) bool {
 		if base == "" {
-			return true
+			// If no base is configured, only allow absolute paths that were
+			// normalized/cleaned earlier.
+			return filepath.IsAbs(p)
 		}
+		// Never delete the base root itself.
 		if p == base {
-			return true
+			return false
 		}
+		// Only allow paths under base/
 		return strings.HasPrefix(p, baseWithSep)
 	}
 
