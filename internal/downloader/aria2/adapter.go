@@ -440,25 +440,36 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
                 if _, err := os.Stat(cand + ".aria2"); err == nil {
                     owned = true
                 } else if len(dl.Files) > 0 {
-                    // Verify ownership by checking if the directory contains any known
-                    // file basenames from this download's metadata. Walk stops on first match.
-                    baseSet := make(map[string]struct{}, len(dl.Files))
+                    // Safer ownership check:
+                    // - Build a set of expected basenames from dl.Files.
+                    // - Require at least two distinct basename matches within cand
+                    //   before considering the directory as owned. This reduces
+                    //   the chance of collateral deletion due to common files
+                    //   like README.txt or RARBG.txt existing elsewhere.
+                    expected := make(map[string]struct{}, len(dl.Files))
                     for _, f := range dl.Files {
                         if b := filepath.Base(f.Path); b != "" {
-                            baseSet[b] = struct{}{}
+                            expected[b] = struct{}{}
                         }
                     }
-                    stop := errors.New("stop")
-                    _ = filepath.Walk(cand, func(p string, info os.FileInfo, err error) error {
-                        if err != nil { return nil }
-                        if !info.IsDir() {
-                            if _, ok := baseSet[filepath.Base(p)]; ok {
-                                owned = true
-                                return stop
+                    // Early out if we don't even have two distinct names to match.
+                    if len(expected) >= 2 {
+                        found := make(map[string]struct{}, 2)
+                        stop := errors.New("stop")
+                        _ = filepath.Walk(cand, func(p string, info os.FileInfo, err error) error {
+                            if err != nil { return nil }
+                            if info.IsDir() { return nil }
+                            b := filepath.Base(p)
+                            if _, ok := expected[b]; ok {
+                                found[b] = struct{}{}
+                                if len(found) >= 2 {
+                                    owned = true
+                                    return stop
+                                }
                             }
-                        }
-                        return nil
-                    })
+                            return nil
+                        })
+                    }
                 }
                 if owned {
                     files = append(files, filepath.Clean(cand))

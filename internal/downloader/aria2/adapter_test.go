@@ -1023,12 +1023,14 @@ func TestDelete_TrimmedRoot_NoSidecar_OwnershipByFiles(t *testing.T) {
     real := "Show.S01.[TGx]"
     root := filepath.Join(base, real)
     if err := os.MkdirAll(filepath.Join(root, "s"), 0o755); err != nil { t.Fatal(err) }
-    fname := "E01.mkv"
-    if err := os.WriteFile(filepath.Join(root, "s", fname), []byte("x"), 0o644); err != nil { t.Fatal(err) }
+    fname1 := "E01.mkv"
+    fname2 := "E02.srt"
+    if err := os.WriteFile(filepath.Join(root, "s", fname1), []byte("x"), 0o644); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(filepath.Join(root, "s", fname2), []byte("y"), 0o644); err != nil { t.Fatal(err) }
 
     // No root .aria2 sidecar present; rely on file ownership check
     dl := &data.Download{ID: "idY", Source: "magnet:?xt=urn:btih:xyz", TargetPath: base, Name: "[METADATA] "+real,
-        Files: []data.DownloadFile{{Path: fname}}}
+        Files: []data.DownloadFile{{Path: fname1}, {Path: fname2}}}
     a := newAdapterNoRPC(t)
     if err := a.Delete(ctx, dl, true); err != nil { t.Fatalf("Delete: %v", err) }
     if _, err := os.Stat(root); !os.IsNotExist(err) { t.Fatalf("root dir not removed: %v", err) }
