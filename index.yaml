@@ -138,7 +138,7 @@ paths:
           $ref: "#/components/responses/PlainError"
     delete:
       tags: [Downloads]
-      summary: Delete a download
+      summary: Delete a download (optionally remove files)
       operationId: deleteDownload
       requestBody:
         required: false
@@ -157,8 +157,6 @@ paths:
       responses:
         "204":
           description: Deleted
-        "400":
-          $ref: "#/components/responses/PlainError"
         "404":
           $ref: "#/components/responses/PlainError"
         "409":

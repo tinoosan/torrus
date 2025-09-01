@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,15 +13,27 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tinoosan/torrus/internal/aria2" // your Client
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/downloader" // the Downloader interface
 )
+
+type fsOps interface {
+	Remove(string) error
+	RemoveAll(string) error
+}
+
+type osFS struct{}
+
+func (osFS) Remove(p string) error    { return os.Remove(p) }
+func (osFS) RemoveAll(p string) error { return os.RemoveAll(p) }
 
 // Adapter implements the Downloader interface using an aria2 JSON-RPC client.
 // It translates Torrus download operations into aria2 RPC calls.
@@ -34,6 +47,7 @@ type Adapter struct {
 	lastProg   map[string]downloader.Progress
 	pollMS     int
 	log        *slog.Logger
+	fs         fsOps
 }
 
 // NewAdapter creates a new Adapter using the provided aria2 client and reporter.
@@ -44,7 +58,7 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 			poll = n
 		}
 	}
-	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default()}
+	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default(), fs: osFS{}}
 }
 
 var _ downloader.Downloader = (*Adapter)(nil)
@@ -319,34 +333,183 @@ func (a *Adapter) Cancel(ctx context.Context, dl *data.Download) error {
 	return nil
 }
 
-// Purge removes on-disk files and any aria2 result for the download. It first
-// attempts to cancel the transfer, then deletes all known payload and control
-// files. All steps are best-effort and idempotent.
-func (a *Adapter) Purge(ctx context.Context, dl *data.Download) error {
+// Delete cancels the download, clears aria2 result state and optionally removes
+// payload files, known sidecar files and prunes empty directories. If
+// deleteFiles is true and any removal fails, the first error is returned.
+func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles bool) error {
 	if dl.GID != "" {
-		// Best-effort cancel; ignore "not found" errors.
-		_ = a.Cancel(ctx, dl)
-
-		// Remove download result to clean aria2 session.
+		if err := a.Cancel(ctx, dl); err != nil && !errors.Is(err, downloader.ErrNotFound) {
+			return err
+		}
+		// Remove download result to clean aria2 session (best effort).
 		_, _ = a.call(ctx, "aria2.removeDownloadResult", append(a.tokenParam(), dl.GID))
 	}
 
-	// Gather file paths from aria2 when possible.
-	files := a.getFiles(ctx, dl.GID)
-	if len(files) == 0 && len(dl.Files) > 0 {
-		files = dl.Files
+	if !deleteFiles {
+		return nil
 	}
 
-	for _, f := range files {
-		p := f.Path
-		if !filepath.IsAbs(p) && dl.TargetPath != "" {
-			p = filepath.Join(dl.TargetPath, p)
+	// Determine files to remove: prefer aria2.getFiles paths, fall back to
+	// dl.Files, then best-effort using TargetPath + Name.
+	paths := a.getFilePaths(ctx, dl.GID)
+	if len(paths) == 0 && len(dl.Files) > 0 {
+		for _, f := range dl.Files {
+			paths = append(paths, f.Path)
 		}
-		_ = os.Remove(p)
-		_ = os.Remove(p + ".aria2")
+	}
+	if len(paths) == 0 && dl.TargetPath != "" && dl.Name != "" {
+		paths = []string{dl.Name}
+	}
+
+	base := filepath.Clean(dl.TargetPath)
+	if dl.TargetPath == "" {
+		base = ""
+	}
+
+	// Helper to ensure a path is within the base directory.
+	baseWithSep := base
+	if baseWithSep != "" && !strings.HasSuffix(baseWithSep, string(os.PathSeparator)) {
+		baseWithSep += string(os.PathSeparator)
+	}
+	isSafe := func(p string) bool {
+		if base == "" {
+			return true
+		}
+		if p == base {
+			return true
+		}
+		return strings.HasPrefix(p, baseWithSep)
+	}
+
+	var files []string
+	sidecars := map[string]struct{}{}
+	dirs := map[string]struct{}{}
+
+	// Normalize and validate file paths, collect sidecars and parent dirs.
+	for _, p := range paths {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(base, p)
+		}
+		p = filepath.Clean(p)
+		if !isSafe(p) {
+			return fmt.Errorf("refusing to delete outside base: %s", p)
+		}
+		files = append(files, p)
+		sidecars[p+".aria2"] = struct{}{}
+
+		d := filepath.Dir(p)
+		for {
+			if d == base || d == string(os.PathSeparator) || d == "." {
+				break
+			}
+			dirs[d] = struct{}{}
+			d = filepath.Dir(d)
+		}
+	}
+
+	// Determine download root (directory containing payload files).
+	root := base
+	if len(files) > 0 {
+		segs := make(map[string]struct{})
+		for _, p := range files {
+			rel, err := filepath.Rel(base, p)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				continue
+			}
+			parts := strings.Split(rel, string(os.PathSeparator))
+			if len(parts) > 1 {
+				segs[parts[0]] = struct{}{}
+			}
+		}
+		if len(segs) == 1 {
+			for s := range segs {
+				root = filepath.Join(base, s)
+			}
+		}
+	}
+
+	// Add potential sidecar files adjacent to the root directory.
+	if root != base {
+		sidecars[root+".aria2"] = struct{}{}
+	}
+	if isTorrentSource(dl.Source) && dl.Name != "" {
+		sidecars[filepath.Join(base, dl.Name+".torrent")] = struct{}{}
+		if root != base {
+			sidecars[root+".torrent"] = struct{}{}
+		}
+	}
+
+	// Convert sidecar set to slice for processing.
+	var scs []string
+	for s := range sidecars {
+		s = filepath.Clean(s)
+		if !isSafe(s) {
+			return fmt.Errorf("refusing to delete outside base: %s", s)
+		}
+		scs = append(scs, s)
+	}
+
+	// Delete payload files.
+	for _, p := range files {
+		a.log.Info("delete file", "path", p)
+		if err := a.fs.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			a.log.Error("delete file", "path", p, "err", err)
+			return fmt.Errorf("delete %s: %w", p, err)
+		}
+	}
+
+	// Delete sidecar files (.aria2, .torrent).
+	for _, s := range scs {
+		a.log.Info("delete sidecar", "path", s)
+		if err := a.fs.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
+			a.log.Error("delete sidecar", "path", s, "err", err)
+			return fmt.Errorf("delete %s: %w", s, err)
+		}
+	}
+
+	// Build list of directories to prune, deepest first.
+	if root != base {
+		dirs[root] = struct{}{}
+	}
+	var dirList []string
+	for d := range dirs {
+		d = filepath.Clean(d)
+		if !isSafe(d) {
+			return fmt.Errorf("refusing to delete outside base: %s", d)
+		}
+		dirList = append(dirList, d)
+	}
+	sort.Slice(dirList, func(i, j int) bool { return len(dirList[i]) > len(dirList[j]) })
+	for _, d := range dirList {
+		a.log.Info("prune dir", "path", d)
+		if err := a.fs.Remove(d); err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTEMPTY) {
+				continue
+			}
+			a.log.Error("prune dir", "path", d, "err", err)
+			return fmt.Errorf("delete %s: %w", d, err)
+		}
+
+		if fi, err := os.Lstat(d); err == nil {
+			if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+				_ = os.RemoveAll(d)
+			} else {
+				_ = os.Remove(d)
+			}
+		} else {
+			_ = os.Remove(d)
+		}
+
+		_ = os.Remove(d + ".aria2")
+
 	}
 
 	return nil
+}
+
+func isTorrentSource(src string) bool {
+	s := strings.ToLower(src)
+	return strings.HasPrefix(s, "magnet:") || strings.HasSuffix(s, ".torrent")
 }
 
 // EmitComplete can be used by callers to signal that a download finished
@@ -542,6 +705,31 @@ func (a *Adapter) getFiles(ctx context.Context, gid string) []data.DownloadFile 
 			continue
 		}
 		out = append(out, data.DownloadFile{Path: base, Length: parse(f.Length), Completed: parse(f.CompletedLength)})
+	}
+	return out
+}
+
+// getFilePaths queries aria2.getFiles and returns the raw paths as reported by
+// aria2. It returns nil on error.
+func (a *Adapter) getFilePaths(ctx context.Context, gid string) []string {
+	params := make([]interface{}, 0, 2)
+	if tok := a.tokenParam(); tok != nil {
+		params = append(params, tok...)
+	}
+	params = append(params, gid)
+	res, err := a.call(ctx, "aria2.getFiles", params)
+	if err != nil {
+		return nil
+	}
+	var files []fileStatus
+	if json.Unmarshal(res, &files) != nil || len(files) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		if f.Path != "" {
+			out = append(out, f.Path)
+		}
 	}
 	return out
 }

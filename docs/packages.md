@@ -18,7 +18,7 @@ Short summaries of key packages and their extension points.
 - `inmem` provides an in-memory implementation.
 
 ## internal/downloader
-- Core `Downloader` interface (`Start`, `Pause`, `Resume`, `Cancel`, `Purge`).
+- Core `Downloader` interface (`Start`, `Pause`, `Resume`, `Cancel`, `Delete`).
 - `Event` model and `Reporter` channel helper.
 - Noop adapter for testing and aria2 adapter under `downloader/aria2`.
 
