@@ -486,6 +486,19 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
 			a.log.Error("prune dir", "path", d, "err", err)
 			return fmt.Errorf("delete %s: %w", d, err)
 		}
+
+		if fi, err := os.Lstat(p); err == nil {
+			if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+				_ = os.RemoveAll(p)
+			} else {
+				_ = os.Remove(p)
+			}
+		} else {
+			_ = os.Remove(p)
+		}
+
+		_ = os.Remove(p + ".aria2")
+
 	}
 
 	return nil
