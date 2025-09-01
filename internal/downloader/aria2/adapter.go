@@ -547,6 +547,8 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
         log = log.With("request_id", rid)
     }
 
+    // Deduplicate deletion candidates to avoid duplicate log lines and calls.
+    files = dedup(files)
     // Delete payload files or directories using fs abstraction.
     for _, p := range files {
         log.Info("delete file", "path", p)
@@ -556,7 +558,8 @@ func (a *Adapter) Delete(ctx context.Context, dl *data.Download, deleteFiles boo
         }
     }
 
-	// Delete sidecar files (.aria2, .torrent).
+    // Delete sidecar files (.aria2, .torrent).
+    scs = dedup(scs)
     for _, s := range scs {
         log.Info("delete sidecar", "path", s)
         if err := a.fs.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -616,6 +619,23 @@ func stripLeadingTags(name string) string {
         }
     }
     return s
+}
+
+// dedup returns a new slice with duplicates removed, preserving order.
+func dedup(in []string) []string {
+    if len(in) <= 1 {
+        return in
+    }
+    seen := make(map[string]struct{}, len(in))
+    out := make([]string, 0, len(in))
+    for _, p := range in {
+        if _, ok := seen[p]; ok {
+            continue
+        }
+        seen[p] = struct{}{}
+        out = append(out, p)
+    }
+    return out
 }
 
 // EmitComplete can be used by callers to signal that a download finished
