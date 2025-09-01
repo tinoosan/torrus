@@ -63,6 +63,7 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 
 var _ downloader.Downloader = (*Adapter)(nil)
 var _ downloader.EventSource = (*Adapter)(nil)
+var _ downloader.FileLister = (*Adapter)(nil)
 
 // --- JSON-RPC wire types ---
 
@@ -732,6 +733,15 @@ func (a *Adapter) getFilePaths(ctx context.Context, gid string) []string {
 		}
 	}
 	return out
+}
+
+// GetFiles exposes aria2.getFiles as absolute paths for the given gid.
+func (a *Adapter) GetFiles(ctx context.Context, gid string) ([]string, error) {
+    paths := a.getFilePaths(ctx, gid)
+    if len(paths) == 0 {
+        return nil, fmt.Errorf("no files for gid %s", gid)
+    }
+    return paths, nil
 }
 
 // tellNameStatus fetches a minimal nameStatus for a gid.
