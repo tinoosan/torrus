@@ -204,6 +204,47 @@ func TestAdapterResumeEmitsMeta(t *testing.T) {
 	}
 }
 
+func TestAdapterPauseAndCancel(t *testing.T) {
+	dl := &data.Download{ID: "1", GID: "gid1"}
+	pauseRT := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		var req rpcReq
+		_ = json.Unmarshal(b, &req)
+		if req.Method != "aria2.pause" {
+			t.Fatalf("pause method=%s", req.Method)
+		}
+		rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+	})
+	a, events := newTestAdapterWithEvents(t, "", pauseRT)
+	if err := a.Pause(context.Background(), dl); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	ev := <-events
+	if ev.Type != downloader.EventPaused || ev.ID != dl.ID {
+		t.Fatalf("pause event: %#v", ev)
+	}
+
+	cancelRT := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		var req rpcReq
+		_ = json.Unmarshal(b, &req)
+		if req.Method != "aria2.remove" {
+			t.Fatalf("cancel method=%s", req.Method)
+		}
+		rb, _ := json.Marshal(rpcResp{Jsonrpc: "2.0", ID: "torrus", Result: json.RawMessage(`"ok"`)})
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(rb)), Header: make(http.Header)}, nil
+	})
+	a2, events2 := newTestAdapterWithEvents(t, "", cancelRT)
+	if err := a2.Cancel(context.Background(), dl); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	ev2 := <-events2
+	if ev2.Type != downloader.EventCancelled || ev2.ID != dl.ID {
+		t.Fatalf("cancel event: %#v", ev2)
+	}
+}
+
 func TestAdapterPurgeDeletesFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	file := filepath.Join(tmpDir, "a.mkv")
