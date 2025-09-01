@@ -114,16 +114,20 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
 	// Only trigger a new start when this call actually created the download.
 	// Idempotent hits (created=false) must not re-start already active items.
     if saved.Status == data.StatusActive && created {
-        // Propagate request_id into background start if present.
+        // Propagate request_id into background start if present. Use two contexts:
+        // - cctx: cancellable context used for the downloader call
+        // - persistCtx: non-cancellable context for repository writes to avoid
+        //   losing GID/status updates if a concurrent Delete cancels cctx.
         base := context.Background()
         if rid, ok := reqid.From(ctx); ok {
             base = reqid.With(base, rid)
         }
+        persistCtx := base
         ctxStart, cancel := context.WithCancel(base)
         ds.startMu.Lock()
         ds.startCancels[saved.ID] = cancel
         ds.startMu.Unlock()
-        go func(d *data.Download, cctx context.Context) {
+        go func(d *data.Download, cctx context.Context, persist context.Context) {
             defer func() {
                 ds.startMu.Lock()
                 delete(ds.startCancels, d.ID)
@@ -134,25 +138,25 @@ func (ds *download) Add(ctx context.Context, d *data.Download) (*data.Download, 
                 if errors.Is(derr, context.Canceled) {
                     return
                 }
-                _, _ = ds.repo.Update(cctx, d.ID, func(dl *data.Download) error {
+                _, _ = ds.repo.Update(persist, d.ID, func(dl *data.Download) error {
                     dl.Status = data.StatusError
                     return nil
                 })
                 return
             }
-            _, err := ds.repo.Update(cctx, d.ID, func(dl *data.Download) error {
+            _, err := ds.repo.Update(persist, d.ID, func(dl *data.Download) error {
                 dl.GID = gid
                 return nil
             })
             if err != nil {
-                _, _ = ds.repo.Update(cctx, d.ID, func(dl *data.Download) error {
+                _, _ = ds.repo.Update(persist, d.ID, func(dl *data.Download) error {
                     dl.Status = data.StatusError
                     return nil
                 })
                 return
             }
             d.GID = gid
-        }(saved, ctxStart)
+        }(saved, ctxStart, persistCtx)
     }
 	return saved, created, nil
 }
