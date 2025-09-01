@@ -32,7 +32,7 @@ func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 	// GETs
 	get := api.Methods("GET").Subrouter()
 	get.HandleFunc("/downloads", downloadHandler.GetDownloads)
-	get.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.GetDownload)
+	get.HandleFunc("/downloads/{id}", downloadHandler.GetDownload)
 
 	// POSTs
 	post := api.Methods("POST").Subrouter()
@@ -41,12 +41,12 @@ func New(logger *slog.Logger, downloadSvc service.Download) *mux.Router {
 
 	// PATCHes
 	patch := api.Methods("PATCH").Subrouter()
-	patch.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.UpdateDownload)
+	patch.HandleFunc("/downloads/{id}", downloadHandler.UpdateDownload)
 	patch.Use(v1.MiddlewarePatchDesired)
 
 	// DELETEs
 	del := api.Methods("DELETE").Subrouter()
-	del.HandleFunc("/downloads/{id:[0-9]+}", downloadHandler.DeleteDownload)
+	del.HandleFunc("/downloads/{id}", downloadHandler.DeleteDownload)
 
 	return r
 }

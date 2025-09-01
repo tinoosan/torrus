@@ -78,10 +78,10 @@ paths:
       - name: id
         in: path
         required: true
-        description: Numeric download identifier
+        description: Download identifier
         schema:
-          type: integer
-          format: int32
+          type: string
+          format: uuid
     get:
       tags: [Downloads]
       summary: Get a download
@@ -201,10 +201,10 @@ components:
       additionalProperties: false
       properties:
         id:
-          type: integer
-          format: int32
+          type: string
+          format: uuid
           readOnly: true
-          example: 2
+          example: "2a1f8d7e-3b4c-4d5e-8f9a-1b2c3d4e5f60"
         gid:
           type: string
           nullable: true

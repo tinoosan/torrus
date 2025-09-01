@@ -29,7 +29,7 @@ type Adapter struct {
 	rep downloader.Reporter
 
 	mu         sync.RWMutex
-	gidToID    map[string]int
+	gidToID    map[string]string
 	activeGIDs map[string]struct{}
 	lastProg   map[string]downloader.Progress
 	pollMS     int
@@ -44,7 +44,7 @@ func NewAdapter(cl *aria2.Client, rep downloader.Reporter) *Adapter {
 			poll = n
 		}
 	}
-	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]int), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default()}
+	return &Adapter{cl: cl, rep: rep, gidToID: make(map[string]string), activeGIDs: make(map[string]struct{}), lastProg: make(map[string]downloader.Progress), pollMS: poll, log: slog.Default()}
 }
 
 var _ downloader.Downloader = (*Adapter)(nil)
@@ -351,14 +351,14 @@ func (a *Adapter) Purge(ctx context.Context, dl *data.Download) error {
 
 // EmitComplete can be used by callers to signal that a download finished
 // successfully. Typically this would be triggered by an aria2 notification.
-func (a *Adapter) emitComplete(id int, gid string) {
+func (a *Adapter) emitComplete(id string, gid string) {
 	if a.rep != nil {
 		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventComplete})
 	}
 }
 
 // EmitFailed signals that a download has failed.
-func (a *Adapter) emitFailed(id int, gid string) {
+func (a *Adapter) emitFailed(id string, gid string) {
 	if a.rep != nil {
 		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventFailed})
 	}
@@ -366,7 +366,7 @@ func (a *Adapter) emitFailed(id int, gid string) {
 
 // EmitProgress publishes a progress update for the given download. Callers are
 // responsible for providing whatever metrics they have available.
-func (a *Adapter) emitProgress(id int, gid string, p downloader.Progress) {
+func (a *Adapter) emitProgress(id string, gid string, p downloader.Progress) {
 	if a.rep != nil {
 		a.rep.Report(downloader.Event{ID: id, GID: gid, Type: downloader.EventProgress, Progress: &p})
 	}

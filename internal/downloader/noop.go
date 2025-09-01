@@ -3,7 +3,6 @@ package downloader
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/tinoosan/torrus/internal/data"
 )
@@ -20,7 +19,7 @@ func NewNoopDownloader() Downloader {
 // Start logs the start request and returns the download ID as a fake GID.
 func (d *noopDownloader) Start(ctx context.Context, dl *data.Download) (string, error) {
 	fmt.Println("noop: start", dl.ID)
-	return strconv.FormatInt(int64(dl.ID), 10), nil
+	return dl.ID, nil
 }
 
 // Pause logs the pause request and does nothing else.

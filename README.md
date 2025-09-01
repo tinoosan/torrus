@@ -133,10 +133,10 @@ curl -X POST http://localhost:8080/v1/downloads \
   -d '{"source":"magnet:?xt=urn:btih:...","targetPath":"/downloads","desiredStatus":"Active"}'
 
 # Get a download by ID
-curl http://localhost:8080/v1/downloads/123
+curl http://localhost:8080/v1/downloads/2a1f8d7e-3b4c-4d5e-8f9a-1b2c3d4e5f60
 
 # Update download desired status
-curl -X PATCH http://localhost:8080/v1/downloads/123 \
+curl -X PATCH http://localhost:8080/v1/downloads/2a1f8d7e-3b4c-4d5e-8f9a-1b2c3d4e5f60 \
   -H "Content-Type: application/json" \
   -d '{"desiredStatus":"Paused"}'
 
