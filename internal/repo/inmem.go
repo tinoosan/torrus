@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -106,12 +107,28 @@ func (r *InMemoryDownloadRepo) Update(ctx context.Context, id string, mutate fun
 	if !ok {
 		return nil, data.ErrNotFound
 	}
-	if mutate != nil {
-		if err := mutate(dl); err != nil {
-			return nil, err
-		}
+
+	clone := dl.Clone()
+	if mutate == nil {
+		return clone, nil
 	}
-	return dl.Clone(), nil
+	if err := mutate(clone); err != nil {
+		return nil, err
+	}
+	oldFP := fp.Fingerprint(dl.Source, dl.TargetPath)
+	newFP := fp.Fingerprint(clone.Source, clone.TargetPath)
+	if oldFP == newFP && reflect.DeepEqual(dl, clone) {
+		return dl.Clone(), nil
+	}
+	if oldFP != newFP {
+		if otherID, ok := r.fpIndex[newFP]; ok && otherID != id {
+			return nil, data.ErrConflict
+		}
+		delete(r.fpIndex, oldFP)
+		r.fpIndex[newFP] = id
+	}
+	r.byID[id] = clone
+	return clone.Clone(), nil
 }
 
 // Delete removes the download with the given ID.

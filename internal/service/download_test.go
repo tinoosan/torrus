@@ -196,6 +196,33 @@ func TestUpdateDesiredStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("resume without gid starts", func(t *testing.T) {
+		r := repo.NewInMemoryDownloadRepo()
+		d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", Status: data.StatusPaused})
+		ch := make(chan struct{}, 1)
+		dl := &stubDownloader{startFn: func(ctx context.Context, d *data.Download) (string, error) {
+			ch <- struct{}{}
+			return "g2", nil
+		}}
+		svc := NewDownload(r, dl)
+
+		got, err := svc.UpdateDesiredStatus(ctx, d.ID, data.StatusResume)
+		if err != nil {
+			t.Fatalf("UpdateDesiredStatus: %v", err)
+		}
+		select {
+		case <-ch:
+		default:
+			t.Fatalf("expected Start to be called")
+		}
+		if dl.resumed {
+			t.Fatalf("Resume should not be called without gid")
+		}
+		if got.Status != data.StatusActive || got.GID != "g2" {
+			t.Fatalf("unexpected result: %#v", got)
+		}
+	})
+
 	t.Run("to Cancelled cancels and clears gid", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
 		d, _ := r.Add(ctx, &data.Download{Source: "s", TargetPath: "t", GID: "g", Status: data.StatusActive})
@@ -251,6 +278,12 @@ func TestServiceAdd_Idempotent(t *testing.T) {
 	if err != nil || !created1 {
 		t.Fatalf("first add err=%v created=%v", err, created1)
 	}
+	if got1.DesiredStatus != data.StatusQueued || got1.Status != data.StatusQueued {
+		t.Fatalf("defaults not applied: %#v", got1)
+	}
+	if got1.CreatedAt.IsZero() {
+		t.Fatalf("CreatedAt not set")
+	}
 	if dl.startCount != 0 { // status is Queued by default
 		t.Fatalf("unexpected start on queued: %d", dl.startCount)
 	}
@@ -268,6 +301,10 @@ func TestServiceAdd_Idempotent(t *testing.T) {
 	_, _, err = svc.Add(ctx, &data.Download{Source: "", TargetPath: "/x"})
 	if !errors.Is(err, data.ErrInvalidSource) {
 		t.Fatalf("expected ErrInvalidSource, got %v", err)
+	}
+	_, _, err = svc.Add(ctx, &data.Download{Source: "http://ok", TargetPath: ""})
+	if !errors.Is(err, data.ErrTargetPath) {
+		t.Fatalf("expected ErrTargetPath, got %v", err)
 	}
 }
 
