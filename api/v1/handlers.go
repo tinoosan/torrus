@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -88,12 +87,7 @@ func (dh *DownloadHandler) GetDownloads(w http.ResponseWriter, r *http.Request) 
 
 func (dh *DownloadHandler) GetDownload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		markErr(w, err)
-		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
-		return
-	}
+	id := vars["id"]
 
 	dl, err := dh.svc.Get(r.Context(), id)
 	if err != nil {
@@ -138,12 +132,7 @@ func (dh *DownloadHandler) AddDownload(w http.ResponseWriter, r *http.Request) {
 
 func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		markErr(w, err)
-		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
-		return
-	}
+	id := vars["id"]
 
 	v := r.Context().Value(ctxKeyPatch{})
 	body, ok := v.(patchBody)
@@ -180,12 +169,7 @@ func (dh *DownloadHandler) UpdateDownload(w http.ResponseWriter, r *http.Request
 
 func (dh *DownloadHandler) DeleteDownload(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		markErr(w, err)
-		http.Error(w, "Unable to convert ID", http.StatusBadRequest)
-		return
-	}
+	id := vars["id"]
 
 	var body deleteBody
 	if r.Body != nil && r.ContentLength != 0 {

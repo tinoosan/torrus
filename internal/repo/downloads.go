@@ -15,7 +15,7 @@ type DownloadRepo interface {
 // DownloadReader defines read-only access to downloads.
 type DownloadReader interface {
 	List(ctx context.Context) (data.Downloads, error)
-	Get(ctx context.Context, id int) (*data.Download, error)
+	Get(ctx context.Context, id string) (*data.Download, error)
 }
 
 // UpdateFields specifies optional updates. Nil fields mean no change.
@@ -29,14 +29,14 @@ type UpdateFields struct {
 // DownloadWriter defines write operations for downloads.
 type DownloadWriter interface {
 	Add(ctx context.Context, download *data.Download) (*data.Download, error)
-	Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error)
+	Update(ctx context.Context, id string, mutate func(*data.Download) error) (*data.Download, error)
 	// AddWithFingerprint performs an atomic check-then-insert based on the
 	// provided fingerprint. If an existing row with the fingerprint exists,
 	// it returns that row and created=false. Otherwise it inserts the provided
 	// download, assigns an ID, and returns created=true.
 	AddWithFingerprint(ctx context.Context, download *data.Download, fingerprint string) (*data.Download, bool, error)
 	// Delete removes the download with the given ID.
-	Delete(ctx context.Context, id int) error
+	Delete(ctx context.Context, id string) error
 }
 
 // DownloadFinder extends lookup helpers

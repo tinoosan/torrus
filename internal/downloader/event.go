@@ -12,7 +12,7 @@ import (
 // events carry transient information about the download and do not
 // mutate repository state yet.
 type Event struct {
-	ID       int
+	ID       string
 	GID      string
 	Type     EventType
 	Progress *Progress

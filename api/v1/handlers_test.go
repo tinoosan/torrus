@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -84,7 +83,7 @@ func TestDownloadsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	id := int(created["id"].(float64))
+	id := created["id"].(string)
 
 	// GET list should have one item
 	req = httptest.NewRequest(http.MethodGet, "/v1/downloads", nil)
@@ -99,12 +98,12 @@ func TestDownloadsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(list) != 1 || int(list[0]["id"].(float64)) != id {
+	if len(list) != 1 || list[0]["id"].(string) != id {
 		t.Fatalf("unexpected list: %v", list)
 	}
 
 	// GET existing download
-	req = httptest.NewRequest(http.MethodGet, "/v1/downloads/"+strconv.Itoa(id), nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/downloads/"+id, nil)
 	authReq(req)
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -113,7 +112,7 @@ func TestDownloadsLifecycle(t *testing.T) {
 	}
 
 	// GET missing download
-	req = httptest.NewRequest(http.MethodGet, "/v1/downloads/9999", nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/downloads/00000000-0000-0000-0000-000000000000", nil)
 	authReq(req)
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -149,7 +148,7 @@ func TestPostIdempotent(t *testing.T) {
 	}
 	var second map[string]any
 	_ = json.NewDecoder(rr2.Body).Decode(&second)
-	if int(first["id"].(float64)) != int(second["id"].(float64)) {
+	if first["id"].(string) != second["id"].(string) {
 		t.Fatalf("ids differ: %v vs %v", first["id"], second["id"])
 	}
 }
@@ -202,10 +201,10 @@ func TestDeleteDownload(t *testing.T) {
 	}
 	var created map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&created)
-	id := int(created["id"].(float64))
+	id := created["id"].(string)
 
 	// delete without body
-	delReq := httptest.NewRequest(http.MethodDelete, "/v1/downloads/"+strconv.Itoa(id), nil)
+	delReq := httptest.NewRequest(http.MethodDelete, "/v1/downloads/"+id, nil)
 	authReq(delReq)
 	delRR := httptest.NewRecorder()
 	h.ServeHTTP(delRR, delReq)
@@ -214,7 +213,7 @@ func TestDeleteDownload(t *testing.T) {
 	}
 
 	// deleting again should return 404
-	delReq2 := httptest.NewRequest(http.MethodDelete, "/v1/downloads/"+strconv.Itoa(id), nil)
+	delReq2 := httptest.NewRequest(http.MethodDelete, "/v1/downloads/"+id, nil)
 	authReq(delReq2)
 	delRR2 := httptest.NewRecorder()
 	h.ServeHTTP(delRR2, delReq2)
@@ -233,11 +232,11 @@ func TestDeleteDownload(t *testing.T) {
 		t.Fatalf("expected 201, got %d", rr.Code)
 	}
 	_ = json.NewDecoder(rr.Body).Decode(&created)
-	id2 := int(created["id"].(float64))
+	id2 := created["id"].(string)
 
 	// delete with deleteFiles true
 	delBody := bytes.NewBufferString(`{"deleteFiles":true}`)
-	delReq3 := httptest.NewRequest(http.MethodDelete, "/v1/downloads/"+strconv.Itoa(id2), delBody)
+	delReq3 := httptest.NewRequest(http.MethodDelete, "/v1/downloads/"+id2, delBody)
 	authReq(delReq3)
 	delReq3.Header.Set("Content-Type", "application/json")
 	delRR3 := httptest.NewRecorder()
@@ -247,7 +246,7 @@ func TestDeleteDownload(t *testing.T) {
 	}
 
 	// bad json
-	badReq := httptest.NewRequest(http.MethodDelete, "/v1/downloads/1", strings.NewReader("{"))
+	badReq := httptest.NewRequest(http.MethodDelete, "/v1/downloads/00000000-0000-0000-0000-000000000001", strings.NewReader("{"))
 	authReq(badReq)
 	badReq.Header.Set("Content-Type", "application/json")
 	badRR := httptest.NewRecorder()
@@ -257,7 +256,7 @@ func TestDeleteDownload(t *testing.T) {
 	}
 
 	// wrong content-type
-	ctReq := httptest.NewRequest(http.MethodDelete, "/v1/downloads/1", strings.NewReader("{}"))
+	ctReq := httptest.NewRequest(http.MethodDelete, "/v1/downloads/00000000-0000-0000-0000-000000000001", strings.NewReader("{}"))
 	authReq(ctReq)
 	ctReq.Header.Set("Content-Type", "text/plain")
 	ctRR := httptest.NewRecorder()
@@ -295,7 +294,7 @@ func TestGetDownloadIncludesFiles(t *testing.T) {
 	}
 	var created map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&created)
-	id := int(created["id"].(float64))
+	id := created["id"].(string)
 
 	// Update repo to include files
 	_, _ = rpo.Update(context.Background(), id, func(d *internaldata.Download) error {
@@ -304,7 +303,7 @@ func TestGetDownloadIncludesFiles(t *testing.T) {
 	})
 
 	// GET by id should include files
-	req = httptest.NewRequest(http.MethodGet, "/v1/downloads/"+strconv.Itoa(id), nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/downloads/"+id, nil)
 	authReq(req)
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -333,6 +332,17 @@ func TestPatchDownload(t *testing.T) {
 		t.Fatalf("expected status 201 got %d", rr.Code)
 	}
 
+	// create a download to patch
+	body = bytes.NewBufferString(`{"source":"magnet:?xt=urn:btih:abcdef","targetPath":"/tmp/file"}`)
+	req = httptest.NewRequest(http.MethodPost, "/v1/downloads", body)
+	authReq(req)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	var created map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&created)
+	id := created["id"].(string)
+
 	tests := []struct {
 		name        string
 		url         string
@@ -340,10 +350,10 @@ func TestPatchDownload(t *testing.T) {
 		body        string
 		want        int
 	}{
-		{"valid", "/v1/downloads/1", "application/json", `{"desiredStatus":"Paused"}`, http.StatusOK},
-		{"invalid status", "/v1/downloads/1", "application/json", `{"desiredStatus":"Bad"}`, http.StatusBadRequest},
-		{"unknown id", "/v1/downloads/999", "application/json", `{"desiredStatus":"Paused"}`, http.StatusNotFound},
-		{"wrong content-type", "/v1/downloads/1", "text/plain", `{"desiredStatus":"Paused"}`, http.StatusUnsupportedMediaType},
+		{"valid", "/v1/downloads/" + id, "application/json", `{"desiredStatus":"Paused"}`, http.StatusOK},
+		{"invalid status", "/v1/downloads/" + id, "application/json", `{"desiredStatus":"Bad"}`, http.StatusBadRequest},
+		{"unknown id", "/v1/downloads/00000000-0000-0000-0000-000000000000", "application/json", `{"desiredStatus":"Paused"}`, http.StatusNotFound},
+		{"wrong content-type", "/v1/downloads/" + id, "text/plain", `{"desiredStatus":"Paused"}`, http.StatusUnsupportedMediaType},
 	}
 
 	for _, tt := range tests {
@@ -392,9 +402,12 @@ func TestPatchConflictPolicyReturns409(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create status=%d", rr.Code)
 	}
+	var created map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&created)
+	id := created["id"].(string)
 
 	// Now PATCH desiredStatus Active -> should hit Start and return 409
-	req = httptest.NewRequest(http.MethodPatch, "/v1/downloads/1", strings.NewReader(`{"desiredStatus":"Active"}`))
+	req = httptest.NewRequest(http.MethodPatch, "/v1/downloads/"+id, strings.NewReader(`{"desiredStatus":"Active"}`))
 	authReq(req)
 	req.Header.Set("Content-Type", "application/json")
 	rr = httptest.NewRecorder()

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -81,7 +82,7 @@ func (r *basicRepo) List(ctx context.Context) (data.Downloads, error) {
 	return r.downloads.Clone(), nil
 }
 
-func (r *basicRepo) Get(ctx context.Context, id int) (*data.Download, error) {
+func (r *basicRepo) Get(ctx context.Context, id string) (*data.Download, error) {
 	for _, d := range r.downloads {
 		if d.ID == id {
 			return d.Clone(), nil
@@ -92,12 +93,12 @@ func (r *basicRepo) Get(ctx context.Context, id int) (*data.Download, error) {
 
 func (r *basicRepo) Add(ctx context.Context, d *data.Download) (*data.Download, error) {
 	r.nextID++
-	d.ID = r.nextID - 1
+	d.ID = strconv.Itoa(r.nextID - 1)
 	r.downloads = append(r.downloads, d.Clone())
 	return d.Clone(), nil
 }
 
-func (r *basicRepo) Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error) {
+func (r *basicRepo) Update(ctx context.Context, id string, mutate func(*data.Download) error) (*data.Download, error) {
 	for _, dl := range r.downloads {
 		if dl.ID == id {
 			if mutate != nil {
@@ -113,12 +114,12 @@ func (r *basicRepo) Update(ctx context.Context, id int, mutate func(*data.Downlo
 
 func (r *basicRepo) AddWithFingerprint(ctx context.Context, d *data.Download, fp string) (*data.Download, bool, error) {
 	r.nextID++
-	d.ID = r.nextID - 1
+	d.ID = strconv.Itoa(r.nextID - 1)
 	r.downloads = append(r.downloads, d.Clone())
 	return d.Clone(), true, nil
 }
 
-func (r *basicRepo) Delete(ctx context.Context, id int) error {
+func (r *basicRepo) Delete(ctx context.Context, id string) error {
 	for i, dl := range r.downloads {
 		if dl.ID == id {
 			r.downloads = append(r.downloads[:i], r.downloads[i+1:]...)
@@ -232,7 +233,7 @@ func TestUpdateDesiredStatus(t *testing.T) {
 	t.Run("invalid status", func(t *testing.T) {
 		r := repo.NewInMemoryDownloadRepo()
 		svc := NewDownload(r, &stubDownloader{})
-		_, err := svc.UpdateDesiredStatus(ctx, 1, data.StatusQueued)
+		_, err := svc.UpdateDesiredStatus(ctx, "1", data.StatusQueued)
 		if !errors.Is(err, data.ErrBadStatus) {
 			t.Fatalf("expected ErrBadStatus, got %v", err)
 		}
@@ -260,7 +261,7 @@ func TestServiceAdd_Idempotent(t *testing.T) {
 		t.Fatalf("second add err=%v created=%v", err, created2)
 	}
 	if got1.ID != got2.ID {
-		t.Fatalf("expected same id, got %d vs %d", got1.ID, got2.ID)
+		t.Fatalf("expected same id, got %s vs %s", got1.ID, got2.ID)
 	}
 
 	// Validation failures do not touch repo
@@ -352,7 +353,7 @@ func TestDownloadService_Delete(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		dlr := &stubDownloader{}
 		svc := NewDownload(r, dlr)
-		if err := svc.Delete(ctx, 999, false); !errors.Is(err, data.ErrNotFound) {
+		if err := svc.Delete(ctx, "999", false); !errors.Is(err, data.ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
 		}
 	})

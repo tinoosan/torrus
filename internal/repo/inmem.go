@@ -2,149 +2,129 @@ package repo
 
 import (
 	"context"
+	"sort"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/tinoosan/torrus/internal/data"
 	"github.com/tinoosan/torrus/internal/fp"
 )
 
-// InMemoryDownloadRepo stores downloads in memory. It is intended for tests and
-// development usage and is not safe for persistence across restarts.
+// InMemoryDownloadRepo stores downloads in memory using a map keyed by ID.
+// It is intended for tests and development usage and is not safe for
+// persistence across restarts.
 type InMemoryDownloadRepo struct {
-	mu        sync.RWMutex
-	downloads data.Downloads
-	nextID    int
-	// fpIndex maps fingerprint -> index into downloads slice
-	fpIndex map[string]int
+	mu      sync.RWMutex
+	byID    map[string]*data.Download
+	fpIndex map[string]string // fingerprint -> id
 }
 
 // NewInMemoryDownloadRepo returns an initialized in-memory repository.
 func NewInMemoryDownloadRepo() *InMemoryDownloadRepo {
 	return &InMemoryDownloadRepo{
-		downloads: make(data.Downloads, 0),
-		nextID:    1,
-		fpIndex:   make(map[string]int),
+		byID:    make(map[string]*data.Download),
+		fpIndex: make(map[string]string),
 	}
 }
 
-// List returns all stored downloads.
+// List returns all stored downloads sorted by creation time ascending.
 func (r *InMemoryDownloadRepo) List(ctx context.Context) (data.Downloads, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.downloads.Clone(), nil
+	res := make(data.Downloads, 0, len(r.byID))
+	for _, d := range r.byID {
+		res = append(res, d.Clone())
+	}
+	sort.Slice(res, func(i, j int) bool { return res[i].CreatedAt.Before(res[j].CreatedAt) })
+	return res, nil
 }
 
 // Get retrieves a download by its ID.
-func (r *InMemoryDownloadRepo) Get(ctx context.Context, id int) (*data.Download, error) {
+func (r *InMemoryDownloadRepo) Get(ctx context.Context, id string) (*data.Download, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, d := range r.downloads {
-		if d.ID == id {
-			return d.Clone(), nil
-		}
+	d, ok := r.byID[id]
+	if !ok {
+		return nil, data.ErrNotFound
 	}
-	return nil, data.ErrNotFound
+	return d.Clone(), nil
 }
 
 // Add inserts a new download and assigns it a unique ID.
 func (r *InMemoryDownloadRepo) Add(ctx context.Context, d *data.Download) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d.ID = r.nextID
-	r.nextID++
-	r.downloads = append(r.downloads, d)
+	d.ID = uuid.NewString()
+	r.byID[d.ID] = d
 	return d.Clone(), nil
 }
 
 // GetByFingerprint returns a clone of the download that matches the provided
 // fingerprint, or data.ErrNotFound if none exists.
-func (r *InMemoryDownloadRepo) GetByFingerprint(ctx context.Context, fp string) (*data.Download, error) {
+func (r *InMemoryDownloadRepo) GetByFingerprint(ctx context.Context, fpv string) (*data.Download, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	idx, ok := r.fpIndex[fp]
-	if !ok || idx < 0 || idx >= len(r.downloads) {
+	id, ok := r.fpIndex[fpv]
+	if !ok {
 		return nil, data.ErrNotFound
 	}
-	return r.downloads[idx].Clone(), nil
+	dl, ok := r.byID[id]
+	if !ok {
+		return nil, data.ErrNotFound
+	}
+	return dl.Clone(), nil
 }
 
 // AddWithFingerprint atomically checks if a fingerprint already exists; if so,
 // it returns the existing download and created=false. Otherwise it inserts the
 // provided download, assigns a new ID, indexes the fingerprint and returns
 // created=true.
-func (r *InMemoryDownloadRepo) AddWithFingerprint(ctx context.Context, d *data.Download, fp string) (*data.Download, bool, error) {
+func (r *InMemoryDownloadRepo) AddWithFingerprint(ctx context.Context, d *data.Download, fpv string) (*data.Download, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if idx, ok := r.fpIndex[fp]; ok {
-		if idx >= 0 && idx < len(r.downloads) {
-			return r.downloads[idx].Clone(), false, nil
+	if id, ok := r.fpIndex[fpv]; ok {
+		if dl, ok := r.byID[id]; ok {
+			return dl.Clone(), false, nil
 		}
-		// fallthrough to reinsert if index out of range (shouldn't happen)
 	}
 
-	d.ID = r.nextID
-	r.nextID++
-	r.downloads = append(r.downloads, d)
-	r.fpIndex[fp] = len(r.downloads) - 1
+	d.ID = uuid.NewString()
+	r.byID[d.ID] = d
+	r.fpIndex[fpv] = d.ID
 	return d.Clone(), true, nil
 }
 
 // Update applies the mutate function to the download with the given ID and
 // returns a deep clone of the updated entity. mutate is executed while holding
 // the repo lock to ensure atomicity.
-func (r *InMemoryDownloadRepo) Update(ctx context.Context, id int, mutate func(*data.Download) error) (*data.Download, error) {
+func (r *InMemoryDownloadRepo) Update(ctx context.Context, id string, mutate func(*data.Download) error) (*data.Download, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	dl, err := r.findByID(id)
-	if err != nil {
-		return nil, err
+	dl, ok := r.byID[id]
+	if !ok {
+		return nil, data.ErrNotFound
 	}
-
 	if mutate != nil {
-		err = mutate(dl)
-		if err != nil {
+		if err := mutate(dl); err != nil {
 			return nil, err
 		}
 	}
-
 	return dl.Clone(), nil
-
 }
 
 // Delete removes the download with the given ID.
-func (r *InMemoryDownloadRepo) Delete(ctx context.Context, id int) error {
+func (r *InMemoryDownloadRepo) Delete(ctx context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	idx := -1
-	for i, dl := range r.downloads {
-		if dl.ID == id {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
+	dl, ok := r.byID[id]
+	if !ok {
 		return data.ErrNotFound
 	}
-
-	r.downloads = append(r.downloads[:idx], r.downloads[idx+1:]...)
-
-	// Rebuild fingerprint index since indices may have shifted.
-	r.fpIndex = make(map[string]int, len(r.downloads))
-	for i, dl := range r.downloads {
-		fpv := fp.Fingerprint(dl.Source, dl.TargetPath)
-		r.fpIndex[fpv] = i
-	}
+	fpv := fp.Fingerprint(dl.Source, dl.TargetPath)
+	delete(r.byID, id)
+	delete(r.fpIndex, fpv)
 	return nil
-}
-
-func (r *InMemoryDownloadRepo) findByID(id int) (*data.Download, error) {
-	for _, dl := range r.downloads {
-		if dl.ID == id {
-			return dl, nil
-		}
-	}
-	return nil, data.ErrNotFound
 }
