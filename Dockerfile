@@ -8,6 +8,8 @@ ENV CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=auto
 # System deps
 RUN apk add --no-cache ca-certificates
 
+RUN apk add --no-cache bash
+
 # Cache module downloads
 COPY go.mod go.sum ./
 RUN go mod download
