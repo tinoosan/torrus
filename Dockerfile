@@ -1,11 +1,10 @@
-FROM golang:1.24-alpine AS builder
+FROM alpine:3.20 AS builder
 
 WORKDIR /src
 
 # Faster, reproducible builds
 ENV CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=auto
 
-FROM alpine:3.20
 
 # System deps
 RUN apk add --no-cache ca-certificates
