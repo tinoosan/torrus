@@ -27,4 +27,5 @@ jobs:
         with:
           context: .
           push: true
+          target: debug
           tags: ghcr.io/tinoosan/torrus:dev
