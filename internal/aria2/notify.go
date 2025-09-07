@@ -34,7 +34,13 @@ func (c *Client) Notifications(ctx context.Context) (<-chan Notification, error)
 		return nil, fmt.Errorf("unsupported scheme: %s", wsURL.Scheme)
 	}
 	// nhooyr websocket requires no fragments; path remains same
-	conn, _, err := websocket.Dial(ctx, wsURL.String(), nil)
+	conn, _, err := websocket.Dial(
+    ctx,
+    wsURL.String(),
+    &websocket.DialOptions{
+        Subprotocols: []string{"jsonrpc"},
+    },
+)
 	if err != nil {
 		return nil, err
 	}
