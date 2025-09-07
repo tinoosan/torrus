@@ -1,50 +1,54 @@
+# ---------- builder ----------
 FROM golang:1.24-alpine AS builder
 
 WORKDIR /src
-
-# Faster, reproducible builds
 ENV CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=auto
 
-# System deps
+# System deps for TLS roots
 RUN apk add --no-cache ca-certificates
 
-RUN apk add --no-cache bash
-
-# Cache module downloads
+# Cache modules
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source
+# Build
 COPY . .
-
-# Build the app (strip debug symbols to shrink)
 RUN go build -ldflags="-s -w" -o /out/torrus ./cmd
 
-# Prepare a log directory to copy into the final image
 RUN mkdir -p /out/var/log/torrus
+RUN cp /etc/ssl/certs/ca-certificates.crt /out/ca-certificates.crt
 
 
-FROM gcr.io/distroless/static:nonroot
-
-# Set working directory (optional)
+# ---------- prod ----------
+FROM gcr.io/distroless/static:nonroot AS prod
 WORKDIR /
 
-# Copy binary and log dir from builder
 COPY --from=builder --chown=nonroot:nonroot /out/torrus /torrus
 COPY --from=builder --chown=nonroot:nonroot /out/var/log/torrus /var/log/torrus
+COPY --from=builder --chown=nonroot:nonroot /out/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-# Default envs (override at runtime as needed)
-# LOG_FORMAT: text|json
 ENV LOG_FORMAT=json
 ENV LOG_FILE_PATH=/var/log/torrus/torrus.log
-ENV LOG_MAX_SIZE=10     
+ENV LOG_MAX_SIZE=10
 ENV LOG_MAX_BACKUPS=3
 ENV LOG_MAX_AGE_DAYS=7
 
-# Distroless already runs as nonroot user
 USER nonroot:nonroot
-
-# The API listens on 9090 by default
 EXPOSE 9090
+ENTRYPOINT ["/torrus"]
 
+
+# ---------- debug  ----------
+FROM alpine:3.20 AS debug
+WORKDIR /
+
+RUN apk add --no-cache bash ca-certificates
+COPY --from=builder /out/torrus /torrus
+COPY --from=builder /out/var/log/torrus /var/log/torrus
+COPY --from=builder /out/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+RUN adduser -D -u 65532 appuser
+USER appuser
+
+EXPOSE 9090
 ENTRYPOINT ["/torrus"]
