@@ -5,6 +5,8 @@ WORKDIR /src
 # Faster, reproducible builds
 ENV CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=auto
 
+FROM alpine:3.20
+
 # System deps
 RUN apk add --no-cache ca-certificates
 
