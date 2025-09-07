@@ -42,12 +42,21 @@ ENTRYPOINT ["/torrus"]
 FROM alpine:3.20 AS debug
 WORKDIR /
 
-RUN apk add --no-cache bash ca-certificates
-COPY --from=builder /out/torrus /torrus
-COPY --from=builder /out/var/log/torrus /var/log/torrus
+RUN apk add --no-cache bash ca-certificates \
+  && adduser -D -u 65532 appuser
+
+# Ensure files and logs are owned by nonroot user
+COPY --from=builder --chown=appuser:appuser /out/torrus /torrus
+COPY --from=builder --chown=appuser:appuser /out/var/log/torrus /var/log/torrus
 COPY --from=builder /out/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-RUN adduser -D -u 65532 appuser
+# Carry logging defaults like prod so debug runs without overrides
+ENV LOG_FORMAT=json
+ENV LOG_FILE_PATH=/var/log/torrus/torrus.log
+ENV LOG_MAX_SIZE=10
+ENV LOG_MAX_BACKUPS=3
+ENV LOG_MAX_AGE_DAYS=7
+
 USER appuser
 
 EXPOSE 9090
