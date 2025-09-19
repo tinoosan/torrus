@@ -2,9 +2,8 @@ package v1
 
 import (
     "context"
-    "encoding/json"
+    "errors"
     "net/http"
-    "strings"
     "time"
 
     "github.com/tinoosan/torrus/internal/data"
@@ -12,27 +11,18 @@ import (
 )
 
 func MiddlewareDownloadValidation(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if contentType := r.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(contentType, "application/json") {
-			// Content type
-			markErr(w, ErrContentType)
-			http.Error(w, ErrContentType.Error(), http.StatusUnsupportedMediaType)
-			return
-		}
-
-		// Body limit
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
-		// Decode with strict fields
-		dl := &data.Download{}
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		err := dec.Decode(dl)
-		if err != nil {
-			markErr(w, err)
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-			return
-		}
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Decode with strict fields and consistent validation
+        dl := &data.Download{}
+        if err := decodeJSONStrict(w, r, dl, 1<<20, "application/json"); err != nil {
+            markErr(w, err)
+            if errors.Is(err, ErrContentType) {
+                http.Error(w, ErrContentType.Error(), http.StatusUnsupportedMediaType)
+            } else {
+                http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+            }
+            return
+        }
 
 		// Enforce read-only fields: reject if client sets name.
 		if dl.Name != "" {
@@ -53,24 +43,18 @@ func MiddlewareDownloadValidation(next http.Handler) http.Handler {
 }
 
 func MiddlewarePatchDesired(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if contentType := r.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(contentType, "application/json") {
-			markErr(w, ErrContentType)
-			http.Error(w, ErrContentType.Error(), http.StatusUnsupportedMediaType)
-			return
-		}
-
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
-		var body patchBody
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		err := dec.Decode(&body)
-		if err != nil {
-			markErr(w, err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        var body patchBody
+        if err := decodeJSONStrict(w, r, &body, 1<<20, "application/json"); err != nil {
+            markErr(w, err)
+            if errors.Is(err, ErrContentType) {
+                http.Error(w, ErrContentType.Error(), http.StatusUnsupportedMediaType)
+            } else {
+                // Preserve original behavior: do not prefix with "invalid JSON: "
+                http.Error(w, err.Error(), http.StatusBadRequest)
+            }
+            return
+        }
 
 		if body.DesiredStatus == "" {
 			markErr(w, ErrDesiredStatusJSON)
