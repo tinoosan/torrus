@@ -1,14 +1,16 @@
 # Torrus API
 
-Torrus is a work-in-progress download orchestration microservice for managing and monitoring downloads. It abstracts tools like aria2 behind a REST API so media servers and other applications can request torrents, magnet links, or direct downloads without handling the downloader directly.
+Torrus is a lightweight download orchestration service. It abstracts downloaders like aria2 behind a simple REST API so apps can request torrents, magnet links, or direct downloads without talking to the downloader directly.
 
 ## Status
 🚧 **Under active development** — APIs, data models, and behavior are subject to change.
 
-## Features (Planned / In Progress)
+## Features
 - Create and list downloads
-- Update download state
-- Retrieve download details
+- Update desired state (Active / Resume / Paused / Cancelled)
+- Retrieve download details (idempotent create via fingerprint)
+- Pluggable downloader (aria2 adapter, noop for dev)
+- Auth via bearer token; structured logs; Prometheus metrics; health/readiness endpoints
 
 ## Use Cases
 
@@ -35,15 +37,27 @@ Unversioned endpoints are disabled by default to encourage consistent usage.
 - Unversioned routes: return `404` (or may optionally redirect to `/v1/...`)
 - Futre health check endpoints (e.g., `/healthz`) will remain unversioned
 
+## Quickstart
+
+Run locally with Go:
+```
+go run ./cmd
+```
+
+Run with Docker (debug image):
+```
+docker compose up --build
+```
+This starts Torrus and aria2. Call `POST /v1/downloads` to create a download.
+
 ## API Overview
 
-Torrus exposes a JSON-over-HTTP interface for orchestrating downloads.
+Torrus exposes a JSON-over-HTTP interface:
 
-- **Authentication** – Every request (except `/healthz`) must include an `Authorization: Bearer <token>` header. The token is supplied to the server via environment variable and unauthenticated calls return `401` or `403`.
-- **Content negotiation** – Requests must set `Content-Type: application/json`. Bodies larger than ~1 MiB or containing unknown fields are rejected with `400`.
-- **Logging** – Each call is logged with method, path, status code, duration, and bytes transferred to aid in debugging and monitoring.
-- **Pluggable downloader** – The API delegates download work to a backend component. A no-op backend is used by default, but alternate downloaders (e.g., Aria2) can be enabled through configuration.
-- **Port** – The service listens on port `9090` by default.
+- Authentication – All endpoints except `/healthz`, `/readyz`, `/metrics` require `Authorization: Bearer <token>`.
+- Content type – `Content-Type: application/json`; unknown fields and >1 MiB bodies are rejected.
+- Logging – Structured logs with method, path, status, duration, bytes; `X-Request-ID` supported.
+- Metrics – Prometheus at `/metrics`; health at `/healthz`; readiness at `/readyz`.
 
 ### Correlation IDs
 All HTTP requests support an optional `X-Request-ID` header for log correlation. If you provide one, the same value appears in server logs as `request_id` and is echoed back in the response header. If you omit it, the server generates a UUID and returns it.
@@ -71,9 +85,16 @@ When deleting a download with `deleteFiles=true`, Torrus applies strict safeguar
 
 ## Configuration
 
-Environment variables:
-- `TORRUS_CLIENT`: Selects downloader backend (`aria2` to enable aria2 adapter; defaults to noop).
-- `ARIA2_RPC_URL`, `ARIA2_SECRET`, `ARIA2_POLL_MS`: Configure the aria2 client and polling interval.
+Common environment variables:
+- `TORRUS_API_TOKEN` – required for protected endpoints
+- `TORRUS_CLIENT` – `aria2` to enable the aria2 adapter (default: noop)
+- `ARIA2_RPC_URL`, `ARIA2_SECRET`, `ARIA2_POLL_MS` – aria2 config
+- `LOG_FORMAT` (`text|json`), `LOG_FILE_PATH`, `LOG_MAX_SIZE`, `LOG_MAX_BACKUPS`, `LOG_MAX_AGE_DAYS`
+
+### Images
+
+- Dev image (branch `dev`): built from Dockerfile `debug` stage.
+- Release images (tags `v*` and `latest`): built from `prod` stage (distroless, non-root).
 
 ### Postgres storage (Kubernetes)
 
@@ -129,9 +150,32 @@ Deployment envs:
 ```
 
 Notes:
-- The service auto-creates a `downloads` table (UNIQUE `fingerprint`).
-- On shutdown, the Postgres connection is closed cleanly.
+- For MVP the service auto-creates a `downloads` table (UNIQUE `fingerprint`). Future migrations will replace this.
+- The Postgres connection closes cleanly on shutdown.
 - Defaults remain in-memory when `TORRUS_STORAGE` is unset.
+
+## Deployment Examples
+
+### Minimal Docker (debug)
+```
+docker run -p 9090:9090 \
+  -e TORRUS_API_TOKEN=dev-token \
+  -e TORRUS_CLIENT=aria2 \
+  -e ARIA2_RPC_URL=http://host.docker.internal:6800/jsonrpc \
+  ghcr.io/tinoosan/torrus:dev
+```
+
+### Kubernetes (prod image)
+See docs for more: docs/running.md, docs/operations.md, and docs/deploy-k8s.md. A minimal env block:
+```
+env:
+- name: TORRUS_STORAGE
+  value: postgres
+- name: TORRUS_API_TOKEN
+  valueFrom:
+    secretKeyRef: { name: api-auth, key: TOKEN }
+# Postgres envs as shown above
+```
 
 ## Endpoints (v1)
 
