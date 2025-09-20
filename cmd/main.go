@@ -96,6 +96,7 @@ func main() {
 	}
 
     var downloadRepo repo.DownloadRepo = repo.NewInMemoryDownloadRepo()
+    var repoCloser interface{ Close() error }
 	events := make(chan downloader.Event, 16)
 	rep := downloader.NewChanReporter(events)
 
@@ -121,6 +122,7 @@ func main() {
             logger.Error("postgres repo init failed; falling back to in-memory", "err", err)
         } else {
             downloadRepo = pg
+            repoCloser = pg
             logger.Info("using postgres storage")
         }
     }
@@ -166,15 +168,21 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	sig := <-sigChan
-	logger.Info("Received terminate, graceful shutdown", "signal", sig)
-	timeout := 30 * time.Second
-	timeoutContext, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	err = server.Shutdown(timeoutContext)
-	if err != nil {
-		logger.Error("Graceful shutdown failed", "err", err)
-	}
-	rec.Stop()
+    sig := <-sigChan
+    logger.Info("Received terminate, graceful shutdown", "signal", sig)
+    timeout := 30 * time.Second
+    timeoutContext, cancel := context.WithTimeout(context.Background(), timeout)
+    defer cancel()
+    err = server.Shutdown(timeoutContext)
+    if err != nil {
+        logger.Error("Graceful shutdown failed", "err", err)
+    }
+    rec.Stop()
+
+    if repoCloser != nil {
+        if err := repoCloser.Close(); err != nil {
+            logger.Error("close repository", "err", err)
+        }
+    }
 
 }

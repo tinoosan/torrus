@@ -178,13 +178,13 @@ func (r *PostgresRepo) Update(ctx context.Context, id string, mutate func(*data.
         return cur, nil
     }
 
+    // Preserve original creation time (immutable) and write back other columns.
     // Recompute fingerprint for potential conflict
     newFP := fp.Fingerprint(next.Source, next.TargetPath)
     filesJSON, _ := json.Marshal(next.Files)
 
-    // Write back full row based on the locked latest snapshot
-    if _, err := tx.ExecContext(ctx, `UPDATE downloads SET gid=$1, source=$2, target_path=$3, name=$4, files=$5, status=$6, desired_status=$7, created_at=$8, fingerprint=$9 WHERE id=$10`,
-        next.GID, next.Source, next.TargetPath, next.Name, nullJSON(filesJSON), string(next.Status), string(next.DesiredStatus), next.CreatedAt, newFP, id); err != nil {
+    if _, err := tx.ExecContext(ctx, `UPDATE downloads SET gid=$1, source=$2, target_path=$3, name=$4, files=$5, status=$6, desired_status=$7, fingerprint=$8 WHERE id=$9`,
+        next.GID, next.Source, next.TargetPath, next.Name, nullJSON(filesJSON), string(next.Status), string(next.DesiredStatus), newFP, id); err != nil {
         if isUniqueViolation(err) {
             return nil, data.ErrConflict
         }
