@@ -75,6 +75,11 @@ Environment variables:
 - `TORRUS_CLIENT`: Selects downloader backend (`aria2` to enable aria2 adapter; defaults to noop).
 - `ARIA2_RPC_URL`, `ARIA2_SECRET`, `ARIA2_POLL_MS`: Configure the aria2 client and polling interval.
 
+### Images
+
+- Dev image (branch `dev`): built with the Dockerfile `debug` stage for easier troubleshooting.
+- Release images (tags `v*` and `latest`): built with the `prod` stage (distroless, non-root).
+
 ### Postgres storage (Kubernetes)
 
 Enable Postgres-backed storage with:

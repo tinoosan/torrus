@@ -33,6 +33,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          target: prod
           push: true
           platforms: linux/amd64
           tags: |
