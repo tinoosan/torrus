@@ -21,6 +21,17 @@ Environment variables, defaults and a sample `.env`.
 | `LOG_MAX_BACKUPS` | `3` | Number of rotated files to keep. |
 | `LOG_MAX_AGE_DAYS` | `7` | Days to retain logs. |
 
+#### Storage (Postgres)
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TORRUS_STORAGE` | empty | Set to `postgres` to enable Postgres-backed repo (otherwise in-memory). |
+| `POSTGRES_HOST` | `postgres` | Postgres host/service name. |
+| `POSTGRES_PORT` | `5432` | Postgres port. |
+| `APP_DB` | `torrus` | Database name for the app. |
+| `APP_USER` | `torrus` | Database user. |
+| `APP_PASSWORD` | empty | Database password (use a Secret). |
+| `POSTGRES_SSLMODE` | `disable` | SSL mode (e.g., `require` in managed DBs). |
+
 ### Example `.env`
 ```
 TORRUS_CLIENT=aria2
@@ -36,6 +47,15 @@ LOG_FILE_PATH=./logs/torrus.log
 LOG_MAX_SIZE=5
 LOG_MAX_BACKUPS=2
 LOG_MAX_AGE_DAYS=7
+
+# Storage (opt-in Postgres)
+TORRUS_STORAGE=postgres
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+APP_DB=torrus
+APP_USER=torrus
+APP_PASSWORD=changeMeApp
+POSTGRES_SSLMODE=disable
 ```
 
 See [running locally](running-locally.md) for using this file with
