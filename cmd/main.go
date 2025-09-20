@@ -95,11 +95,11 @@ func main() {
 		logger = slog.New(slog.NewTextHandler(multiOut, nil))
 	}
 
-	downloadRepo := repo.NewInMemoryDownloadRepo()
+    var downloadRepo repo.DownloadRepo = repo.NewInMemoryDownloadRepo()
 	events := make(chan downloader.Event, 16)
 	rep := downloader.NewChanReporter(events)
 
-	var dlr downloader.Downloader
+    var dlr downloader.Downloader
 	switch os.Getenv("TORRUS_CLIENT") {
 	case "aria2":
         aria2Client, err := aria2.NewClientFromEnv()
@@ -114,6 +114,16 @@ func main() {
 	default:
 		dlr = downloader.NewNoopDownloader()
 	}
+
+    // Optionally switch storage to Postgres when configured
+    if os.Getenv("TORRUS_STORAGE") == "postgres" {
+        if pg, err := repo.NewPostgresRepoFromEnv(); err != nil {
+            logger.Error("postgres repo init failed; falling back to in-memory", "err", err)
+        } else {
+            downloadRepo = pg
+            logger.Info("using postgres storage")
+        }
+    }
 
     downloadSvc := service.NewDownload(downloadRepo, dlr)
 
