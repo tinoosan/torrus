@@ -151,17 +151,30 @@ SELECT id FROM ins
 
 // Update implements DownloadWriter.Update by fetching, mutating, and writing back with conflict detection.
 func (r *PostgresRepo) Update(ctx context.Context, id string, mutate func(*data.Download) error) (*data.Download, error) {
-    // Fetch current
-    cur, err := r.Get(ctx, id)
+    // Serialize updates per row using a transaction with SELECT ... FOR UPDATE
+    tx, err := r.db.BeginTx(ctx, &sql.TxOptions{})
     if err != nil { return nil, err }
+    defer func() {
+        // Safe rollback when not committed
+        _ = tx.Rollback()
+    }()
+
+    // Load the latest row under lock
+    row := tx.QueryRowContext(ctx, `SELECT id,gid,source,target_path,name,files,status,desired_status,created_at FROM downloads WHERE id=$1 FOR UPDATE`, id)
+    cur, err := scanDownload(row)
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) { return nil, data.ErrNotFound }
+        return nil, err
+    }
 
     next := cur.Clone()
     if mutate != nil {
         if err := mutate(next); err != nil { return nil, err }
     }
 
-    // If no change, return current
+    // If no effective change, return current
     if equalDownloads(cur, next) {
+        if err := tx.Commit(); err != nil { return nil, err }
         return cur, nil
     }
 
@@ -169,17 +182,21 @@ func (r *PostgresRepo) Update(ctx context.Context, id string, mutate func(*data.
     newFP := fp.Fingerprint(next.Source, next.TargetPath)
     filesJSON, _ := json.Marshal(next.Files)
 
-    // Update with optimistic conflict handling: unique index on fingerprint will protect duplicates.
-    _, err = r.db.ExecContext(ctx, `UPDATE downloads SET gid=$1, source=$2, target_path=$3, name=$4, files=$5, status=$6, desired_status=$7, created_at=$8, fingerprint=$9 WHERE id=$10`,
-        next.GID, next.Source, next.TargetPath, next.Name, nullJSON(filesJSON), string(next.Status), string(next.DesiredStatus), next.CreatedAt, newFP, id)
-    if err != nil {
-        // crude detection of unique violation to map to ErrConflict
+    // Write back full row based on the locked latest snapshot
+    if _, err := tx.ExecContext(ctx, `UPDATE downloads SET gid=$1, source=$2, target_path=$3, name=$4, files=$5, status=$6, desired_status=$7, created_at=$8, fingerprint=$9 WHERE id=$10`,
+        next.GID, next.Source, next.TargetPath, next.Name, nullJSON(filesJSON), string(next.Status), string(next.DesiredStatus), next.CreatedAt, newFP, id); err != nil {
         if isUniqueViolation(err) {
             return nil, data.ErrConflict
         }
         return nil, err
     }
-    return r.Get(ctx, id)
+
+    // Return the updated snapshot from within the txn for consistency
+    row2 := tx.QueryRowContext(ctx, `SELECT id,gid,source,target_path,name,files,status,desired_status,created_at FROM downloads WHERE id=$1`, id)
+    updated, err := scanDownload(row2)
+    if err != nil { return nil, err }
+    if err := tx.Commit(); err != nil { return nil, err }
+    return updated, nil
 }
 
 // Delete implements DownloadWriter.Delete
