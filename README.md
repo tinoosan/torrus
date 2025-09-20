@@ -75,6 +75,64 @@ Environment variables:
 - `TORRUS_CLIENT`: Selects downloader backend (`aria2` to enable aria2 adapter; defaults to noop).
 - `ARIA2_RPC_URL`, `ARIA2_SECRET`, `ARIA2_POLL_MS`: Configure the aria2 client and polling interval.
 
+### Postgres storage (Kubernetes)
+
+Enable Postgres-backed storage with:
+- `TORRUS_STORAGE=postgres`
+- Connection envs (defaults in parentheses):
+  - `POSTGRES_HOST` (postgres)
+  - `POSTGRES_PORT` (5432)
+  - `APP_DB` (torrus)
+  - `APP_USER` (torrus)
+  - `APP_PASSWORD` (no default; from Secret)
+  - `POSTGRES_SSLMODE` (disable)
+
+Example Secret:
+
+```
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-auth
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "changeMeAdmin"
+  APP_DB: "torrus"
+  APP_USER: "torrus"
+  APP_PASSWORD: "changeMeApp"
+```
+
+Deployment envs:
+
+```
+- name: TORRUS_STORAGE
+  value: postgres
+- name: POSTGRES_HOST
+  value: postgres
+- name: POSTGRES_PORT
+  value: "5432"
+- name: APP_DB
+  valueFrom:
+    secretKeyRef:
+      name: postgres-auth
+      key: APP_DB
+- name: APP_USER
+  valueFrom:
+    secretKeyRef:
+      name: postgres-auth
+      key: APP_USER
+- name: APP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: postgres-auth
+      key: APP_PASSWORD
+```
+
+Notes:
+- The service auto-creates a `downloads` table (UNIQUE `fingerprint`).
+- On shutdown, the Postgres connection is closed cleanly.
+- Defaults remain in-memory when `TORRUS_STORAGE` is unset.
+
 ## Endpoints (v1)
 
 ### Downloads
