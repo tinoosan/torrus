@@ -166,7 +166,7 @@ docker run -p 9090:9090 \
 ```
 
 ### Kubernetes (prod image)
-See docs for more: docs/running.md and docs/operations.md. A minimal env block:
+See docs for more: docs/running.md, docs/operations.md, and docs/deploy-k8s.md. A minimal env block:
 ```
 env:
 - name: TORRUS_STORAGE
