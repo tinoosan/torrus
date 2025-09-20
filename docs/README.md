@@ -12,6 +12,7 @@ contributors can quickly become productive.
 - [Idempotency](idempotency.md)
 - [Configuration](configuration.md)
 - [Running Locally](running-locally.md)
+- [Deploy on Kubernetes](deploy-k8s.md)
 - [CI/CD](ci-cd.md)
 - [Extending Torrus](extending.md)
 - [Packages](packages.md)
