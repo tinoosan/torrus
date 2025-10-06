@@ -45,14 +45,14 @@ func NewPostgresRepo(dsn string) (*PostgresRepo, error) {
 }
 
 // NewPostgresRepoFromEnv constructs a DSN using common env vars.
-// Recognizes: POSTGRES_HOST, POSTGRES_PORT, APP_DB, APP_USER, APP_PASSWORD.
+// Recognizes: POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD.
 // Defaults: host=postgres, port=5432, db=torrus, user=torrus, password="".
 func NewPostgresRepoFromEnv() (*PostgresRepo, error) {
     host := getenv("POSTGRES_HOST", "postgres")
     port := getenv("POSTGRES_PORT", "5432")
-    db := getenv("APP_DB", "torrus")
-    user := getenv("APP_USER", "torrus")
-    pass := getenv("APP_PASSWORD", "")
+    db := getenv("POSTGRES_DB", "torrus")
+    user := getenv("POSTGRES_USER", "torrus")
+    pass := getenv("POSTGRES_PASSWORD", "")
     ssl := getenv("POSTGRES_SSLMODE", "disable")
     dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", urlEscape(user), urlEscape(pass), host, port, db, ssl)
     return NewPostgresRepo(dsn)
