@@ -55,10 +55,7 @@ func NewPostgresRepoFromEnv() (*PostgresRepo, error) {
     return NewPostgresRepo(dsn)
 }
 
-func getenv(k, def string) string { if v := os.Getenv(k); v != "" { return v }; return def }
-
-// urlEscape is obsolete; retained for backward compatibility of imports.
-func urlEscape(s string) string { return s }
+// (intentionally left blank) removed unused helpers.
 
 func (r *PostgresRepo) Close() error { return r.db.Close() }
 
