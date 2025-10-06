@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## 0.1.0 – 2025-09-20
 
 - Storage: Add PostgreSQL-backed repository (opt-in via `TORRUS_STORAGE=postgres`).
-  - DSN from env via `POSTGRES_DB_URL` (e.g., `postgres://user:pass@host:5432/db?sslmode=disable`).
+  - DSN built from env (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE`), with proper URL-encoding of credentials.
   - Auto-creates `downloads` table with UNIQUE `fingerprint` for MVP.
   - Graceful shutdown: close DB on server exit.
   - Update is transactional with `SELECT FOR UPDATE` to prevent lost updates.

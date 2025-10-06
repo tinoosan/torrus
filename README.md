@@ -100,9 +100,15 @@ Common environment variables:
 
 Enable Postgres-backed storage with:
 - `TORRUS_STORAGE=postgres`
-- `POSTGRES_DB_URL` (full DSN), e.g. `postgres://torrus:enc%25oded@postgres:5432/torrus?sslmode=disable`
+- Connection envs (defaults in parentheses):
+  - `POSTGRES_HOST` (postgres)
+  - `POSTGRES_PORT` (5432)
+  - `POSTGRES_DB` (torrus)
+  - `POSTGRES_USER` (torrus)
+  - `POSTGRES_PASSWORD` (no default; from Secret)
+  - `POSTGRES_SSLMODE` (disable)
 
-Example Secret (preferred single DSN):
+Example Secret:
 
 ```
 apiVersion: v1
@@ -111,7 +117,9 @@ metadata:
   name: postgres-auth
 type: Opaque
 stringData:
-  DATABASE_URL: "postgres://torrus:changeMeApp@postgres:5432/torrus?sslmode=disable"
+  POSTGRES_DB: "torrus"
+  POSTGRES_USER: "torrus"
+  POSTGRES_PASSWORD: "changeMeAppWith%Specials"
 ```
 
 Deployment envs:
@@ -119,11 +127,18 @@ Deployment envs:
 ```
 - name: TORRUS_STORAGE
   value: postgres
-- name: POSTGRES_DB_URL
-  valueFrom:
-    secretKeyRef:
-      name: postgres-auth
-      key: DATABASE_URL
+- name: POSTGRES_HOST
+  value: postgres
+- name: POSTGRES_PORT
+  value: "5432"
+- name: POSTGRES_DB
+  valueFrom: { secretKeyRef: { name: postgres-auth, key: POSTGRES_DB } }
+- name: POSTGRES_USER
+  valueFrom: { secretKeyRef: { name: postgres-auth, key: POSTGRES_USER } }
+- name: POSTGRES_PASSWORD
+  valueFrom: { secretKeyRef: { name: postgres-auth, key: POSTGRES_PASSWORD } }
+- name: POSTGRES_SSLMODE
+  value: disable
 ```
 
 Notes:
