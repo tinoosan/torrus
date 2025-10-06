@@ -5,7 +5,8 @@ import (
     "database/sql"
     "encoding/json"
     "errors"
-    "fmt"
+    "net"
+    "net/url"
     "os"
     "strings"
     "time"
@@ -44,18 +45,37 @@ func NewPostgresRepo(dsn string) (*PostgresRepo, error) {
     return r, nil
 }
 
-// NewPostgresRepoFromEnv reads DSN from env.
-// Required: POSTGRES_DB_URL (complete DSN, e.g. postgres://user:pass@host:5432/db?sslmode=disable)
-// If POSTGRES_DB_URL is unset or empty, an error is returned.
+// NewPostgresRepoFromEnv constructs a DSN using component env vars.
+// Recognized envs (with defaults):
+//   POSTGRES_HOST (postgres), POSTGRES_PORT (5432), POSTGRES_DB (torrus),
+//   POSTGRES_USER (torrus), POSTGRES_PASSWORD (empty), POSTGRES_SSLMODE (disable)
+// Credentials and db name are URL-encoded to handle special characters safely.
 func NewPostgresRepoFromEnv() (*PostgresRepo, error) {
-    dsn := os.Getenv("POSTGRES_DB_URL")
-    if strings.TrimSpace(dsn) == "" {
-        return nil, fmt.Errorf("POSTGRES_DB_URL is required when TORRUS_STORAGE=postgres")
+    host := getenv("POSTGRES_HOST", "postgres")
+    port := getenv("POSTGRES_PORT", "5432")
+    db := getenv("POSTGRES_DB", "torrus")
+    user := getenv("POSTGRES_USER", "torrus")
+    pass := getenv("POSTGRES_PASSWORD", "")
+    ssl := getenv("POSTGRES_SSLMODE", "disable")
+
+    u := &url.URL{
+        Scheme: "postgres",
+        User:   url.UserPassword(user, pass),
+        Host:   net.JoinHostPort(host, port),
+        Path:   "/" + db,
     }
-    return NewPostgresRepo(dsn)
+    q := url.Values{}
+    q.Set("sslmode", ssl)
+    u.RawQuery = q.Encode()
+    return NewPostgresRepo(u.String())
 }
 
-// (intentionally left blank) removed unused helpers.
+func getenv(k, def string) string {
+    if v := os.Getenv(k); v != "" {
+        return v
+    }
+    return def
+}
 
 func (r *PostgresRepo) Close() error { return r.db.Close() }
 
