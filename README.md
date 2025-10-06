@@ -100,15 +100,9 @@ Common environment variables:
 
 Enable Postgres-backed storage with:
 - `TORRUS_STORAGE=postgres`
-- Connection envs (defaults in parentheses):
-  - `POSTGRES_HOST` (postgres)
-  - `POSTGRES_PORT` (5432)
-  - `APP_DB` (torrus)
-  - `APP_USER` (torrus)
-  - `APP_PASSWORD` (no default; from Secret)
-  - `POSTGRES_SSLMODE` (disable)
+- `POSTGRES_DB_URL` (full DSN), e.g. `postgres://torrus:enc%25oded@postgres:5432/torrus?sslmode=disable`
 
-Example Secret:
+Example Secret (preferred single DSN):
 
 ```
 apiVersion: v1
@@ -117,10 +111,7 @@ metadata:
   name: postgres-auth
 type: Opaque
 stringData:
-  POSTGRES_PASSWORD: "changeMeAdmin"
-  APP_DB: "torrus"
-  APP_USER: "torrus"
-  APP_PASSWORD: "changeMeApp"
+  DATABASE_URL: "postgres://torrus:changeMeApp@postgres:5432/torrus?sslmode=disable"
 ```
 
 Deployment envs:
@@ -128,25 +119,11 @@ Deployment envs:
 ```
 - name: TORRUS_STORAGE
   value: postgres
-- name: POSTGRES_HOST
-  value: postgres
-- name: POSTGRES_PORT
-  value: "5432"
-- name: APP_DB
+- name: POSTGRES_DB_URL
   valueFrom:
     secretKeyRef:
       name: postgres-auth
-      key: APP_DB
-- name: APP_USER
-  valueFrom:
-    secretKeyRef:
-      name: postgres-auth
-      key: APP_USER
-- name: APP_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: postgres-auth
-      key: APP_PASSWORD
+      key: DATABASE_URL
 ```
 
 Notes:

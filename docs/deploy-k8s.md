@@ -11,7 +11,7 @@ Secrets. Adjust namespaces and resource values for your cluster.
 
 ## Secrets
 
-Postgres credentials (you provided this layout):
+Postgres credentials (single DSN recommended):
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -19,10 +19,7 @@ metadata:
   name: postgres-auth
 type: Opaque
 stringData:
-  POSTGRES_PASSWORD: "changeMeAdmin"
-  APP_DB: "torrus"
-  APP_USER: "torrus"
-  APP_PASSWORD: "changeMeApp"
+  DATABASE_URL: "postgres://torrus:changeMeApp@postgres:5432/torrus?sslmode=disable"
 ```
 
 API token Secret:
@@ -82,19 +79,9 @@ spec:
           value: aria2
         - name: ARIA2_RPC_URL
           value: http://aria2:6800/jsonrpc
-        # Postgres wiring
-        - name: POSTGRES_HOST
-          value: postgres
-        - name: POSTGRES_PORT
-          value: "5432"
-        - name: APP_DB
-          valueFrom: { secretKeyRef: { name: postgres-auth, key: APP_DB } }
-        - name: APP_USER
-          valueFrom: { secretKeyRef: { name: postgres-auth, key: APP_USER } }
-        - name: APP_PASSWORD
-          valueFrom: { secretKeyRef: { name: postgres-auth, key: APP_PASSWORD } }
-        - name: POSTGRES_SSLMODE
-          value: disable
+        # Postgres wiring (single DSN)
+        - name: POSTGRES_DB_URL
+          valueFrom: { secretKeyRef: { name: postgres-auth, key: DATABASE_URL } }
         resources:
           requests: { cpu: 100m, memory: 128Mi }
           limits:   { cpu: 500m, memory: 512Mi }
@@ -149,5 +136,5 @@ spec:
 ## Notes
 - The API uses a distroless image for releases; there is no shell. Use logs and health endpoints for troubleshooting.
 - Set `TORRUS_API_TOKEN` in all environments. Health/readiness/metrics remain unauthenticated by design.
-- For production, consider managed Postgres and set `POSTGRES_SSLMODE=require`.
+- For production, consider managed Postgres and include `sslmode=require` in `POSTGRES_DB_URL`.
 - Future versions will use versioned DB migrations instead of auto-creating the schema.

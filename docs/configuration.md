@@ -25,12 +25,7 @@ Environment variables, defaults and a sample `.env`.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `TORRUS_STORAGE` | empty | Set to `postgres` to enable Postgres-backed repo (otherwise in-memory). |
-| `POSTGRES_HOST` | `postgres` | Postgres host/service name. |
-| `POSTGRES_PORT` | `5432` | Postgres port. |
-| `APP_DB` | `torrus` | Database name for the app. |
-| `APP_USER` | `torrus` | Database user. |
-| `APP_PASSWORD` | empty | Database password (use a Secret). |
-| `POSTGRES_SSLMODE` | `disable` | SSL mode (e.g., `require` in managed DBs). |
+| `POSTGRES_DB_URL` | empty | Full Postgres DSN, e.g. `postgres://user:pass@host:5432/db?sslmode=disable`. |
 
 ### Example `.env`
 ```
@@ -50,12 +45,7 @@ LOG_MAX_AGE_DAYS=7
 
 # Storage (opt-in Postgres)
 TORRUS_STORAGE=postgres
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-APP_DB=torrus
-APP_USER=torrus
-APP_PASSWORD=changeMeApp
-POSTGRES_SSLMODE=disable
+POSTGRES_DB_URL=postgres://torrus:changeMeApp@postgres:5432/torrus?sslmode=disable
 ```
 
 See [running locally](running-locally.md) for using this file with
