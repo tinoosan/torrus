@@ -44,26 +44,21 @@ func NewPostgresRepo(dsn string) (*PostgresRepo, error) {
     return r, nil
 }
 
-// NewPostgresRepoFromEnv constructs a DSN using common env vars.
-// Recognizes: POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD.
-// Defaults: host=postgres, port=5432, db=torrus, user=torrus, password="".
+// NewPostgresRepoFromEnv reads DSN from env.
+// Required: POSTGRES_DB_URL (complete DSN, e.g. postgres://user:pass@host:5432/db?sslmode=disable)
+// If POSTGRES_DB_URL is unset or empty, an error is returned.
 func NewPostgresRepoFromEnv() (*PostgresRepo, error) {
-    host := getenv("POSTGRES_HOST", "postgres")
-    port := getenv("POSTGRES_PORT", "5432")
-    db := getenv("POSTGRES_DB", "torrus")
-    user := getenv("POSTGRES_USER", "torrus")
-    pass := getenv("POSTGRES_PASSWORD", "")
-    ssl := getenv("POSTGRES_SSLMODE", "disable")
-    dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", urlEscape(user), urlEscape(pass), host, port, db, ssl)
+    dsn := os.Getenv("POSTGRES_DB_URL")
+    if strings.TrimSpace(dsn) == "" {
+        return nil, fmt.Errorf("POSTGRES_DB_URL is required when TORRUS_STORAGE=postgres")
+    }
     return NewPostgresRepo(dsn)
 }
 
 func getenv(k, def string) string { if v := os.Getenv(k); v != "" { return v }; return def }
 
-func urlEscape(s string) string {
-    // Minimal escape for DSN components; for simplicity rely on fmt construction with no special chars typically
-    return s
-}
+// urlEscape is obsolete; retained for backward compatibility of imports.
+func urlEscape(s string) string { return s }
 
 func (r *PostgresRepo) Close() error { return r.db.Close() }
 
